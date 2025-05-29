@@ -1,0 +1,267 @@
+---
+title: "Sources of variance for the cytokines - Single-nuclei RNAseq"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> Biological contribution of phenotype data on cytokine expression in each cell-type from DLPFC region.
+
+```{r, clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(tidyverse)
+library(ggpubr)
+library(variancePartition)
+library(ggeasy)
+library(ggplot2)
+library(Matrix)
+library(openxlsx)
+```
+
+```{r set_dir, warning=FALSE, message=FALSE, include=FALSE} 
+work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC"
+```
+
+```{r exprData_upload, warning=FALSE, message=FALSE, include=FALSE} 
+file_path <- file.path(work_dir, "snRNA_pseudoBulk_7majCellTypes.rds")
+celltype_exp <- readRDS(file_path)
+```
+
+```{r phenoData_upload, warning=FALSE, message=FALSE, include=FALSE} 
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/pheno_SN.Rdata"
+load(file_path)
+phenotype_dt <- pheno_SN
+```
+
+```{r apoe4, warning=FALSE, message=FALSE, include=FALSE}
+phenotype_dt$apoe4 <- as.factor(as.integer(grepl("4", phenotype_dt$apoe_genotype)))
+head(phenotype_dt)
+```
+
+```{r cytokines_list_upload, warning=FALSE, message=FALSE, include=FALSE} 
+# upload list of cytokines
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T015/list_cytokines_T015.txt"
+cytokines <- read.delim(file_path, header = TRUE, check.names = FALSE, stringsAsFactors = FALSE)
+cytokines <- subset(cytokines, select = -family) # I removed the 'family' column here because it had NA values
+ensembls = cytokines$ensembl
+```
+
+# Cell types
+
+```{r function_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=6, fig.height=14} 
+vp4sn <- function(celltype_list, list_name, output_filename, title, code_color) {
+  library(doParallel)
+  library(dplyr)
+  library(reshape2)
+  library(ggplot2)
+  library(ggbeeswarm)
+  library(ggrepel)
+  library(ggeasy)
+  
+  cl <- makeCluster(10)
+  registerDoParallel(cl)
+
+  exprData <- celltype_list[[list_name]]
+  
+  # Filtrar a expressão gênica
+  exprData_filt <- exprData[rownames(exprData) %in% cytokines$ensembl, ]
+  exprData_filt$ensembl <- rownames(exprData_filt)
+  expr_target <- merge(exprData_filt, cytokines, by = "ensembl")
+  rownames(expr_target) <- expr_target$symbol
+  expr_target$ensembl <- NULL
+  expr_target$symbol <- NULL
+
+  phenotype_dt <- phenotype_dt[phenotype_dt$projid %in% colnames(expr_target), ]
+  phenotype_dt_filt <- phenotype_dt[, c("projid",
+                                        "cogng_demog_slope",
+                                        "cogng_path_slope",
+                                        "tangles_sqrt",
+                                        "amyloid_sqrt",
+                                        "gpath",
+                                        "cogdx_3gp",
+                                        "caa_4gp",
+                                        "age_death",
+                                        "msex",
+                                        "apoe4")]
+
+  phenotype_dt_filt$cogdx_3gp <- as.factor(phenotype_dt_filt$cogdx_3gp)
+  phenotype_dt_filt$caa_4gp <- as.factor(phenotype_dt_filt$caa_4gp)
+  phenotype_dt_filt$msex <- as.factor(phenotype_dt_filt$msex)
+
+  form <- ~ cogng_demog_slope + tangles_sqrt + amyloid_sqrt + gpath + (1|cogdx_3gp) + (1|caa_4gp) + age_death + (1|msex) + (1|apoe4)
+
+  varPart_tx <- suppressWarnings(fitExtractVarPartModel(expr_target, form, phenotype_dt_filt))
+  vp <- sortCols(varPart_tx)
+
+  # Renomeando as variáveis antes da criação de vp_m
+  colnames(vp) <- recode(colnames(vp),
+                         "cogng_demog_slope" = "Cognitive decline",
+                        "tangles_sqrt" = "PHFtau tangle density",
+                        "amyloid_sqrt" = "Amyloid-β load",
+                        "gpath" = "Global AD burden",
+                        "cogdx_3gp" = "AD diagnosis",
+                        "caa_4gp" = "Cerebral amyloid angiopathy",
+                        "age_death" = "Age of death",
+                        "msex" = "Sex",
+                        "apoe4" = "Apoe 4")
+
+  vp_m <- reshape2::melt(vp[,-ncol(vp)])
+  vp_m$gene_label <- rownames(vp)
+  vp_m <- vp_m %>% group_by(variable) %>% arrange(-value) %>%
+    mutate(gene_label = ifelse(row_number() <= 2, gene_label, ""))
+
+  vp_m <- vp_m %>%
+    mutate(value_percentage = value*100)
+
+  gg <- ggplot(vp_m, aes(x = variable, y = value_percentage)) +
+    geom_violin(aes(fill = variable), scale = "width", color = "black") + 
+    geom_boxplot(aes(fill = variable), outlier.shape = NA, width = 0.3, color = "black") +
+    ggbeeswarm::geom_quasirandom(alpha = 0.5) +
+    ggrepel::geom_text_repel(aes(label = gene_label)) + 
+    theme_bw() + 
+    ggeasy::easy_rotate_x_labels(angle = 25, side = c("right")) +
+    labs(x = "Phenotype", y = "Variance explained (%)", title = title) +
+    scale_fill_manual(values = rep(code_color, length(unique(vp_m$variable)))) +
+    theme(
+      axis.title.y = element_text(size = 18),
+      axis.title.x = element_blank(),
+      axis.title = element_text(size = 18),
+      axis.text = element_text(size = 14),   
+      plot.title = element_text(size = 20),  
+      legend.position = "none", 
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 46)  
+    )
+
+  print(gg)
+  
+   # Save PNG
+  png(file = paste0(output_filename, ".png"), width = 3000, height = 1800, res = 300)
+  print(gg)
+  dev.off()
+  
+  # Save PDF
+  pdf(file = paste0(output_filename, ".pdf"), width = 10, height = 6)
+  print(gg)
+  dev.off()
+  
+  # Retorno dos objetos
+  return(list(vp = vp,
+              vp_m = vp_m))
+  
+}
+```
+
+## Excitatory Neurons
+
+```{r ext_neurons_VP, message=FALSE, results='hide', warning=FALSE, echo=FALSE, fig.width=10, fig.height=6} 
+result_ext <- vp4sn(celltype_exp, "ext", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_ext_T040", "Excitatory neurons", "#9fc5e8")
+```
+
+## Inhibitory Neurons
+
+```{r inh_neurons_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
+result_inh <- vp4sn(celltype_exp, "inh", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_inh_T040", "Inhibitory neurons", "#e06666")
+```
+
+## Microglia
+
+```{r mic_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
+result_mic <- vp4sn(celltype_exp, "mic", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_mic_T040", "Microglia", "#f6b26b")
+```
+
+## Oligodendrocytes
+
+```{r oli_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
+result_oli <- vp4sn(celltype_exp, "oli", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_oli_T040", "Oligodendrocytes", "#b6d7a8")
+```
+
+## Astrocytes
+
+```{r ast_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
+result_ast <- vp4sn(celltype_exp, "ast", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_ast_T040", "Astrocytes", "#b4a7d6")
+```
+
+## Oligodendrocyte progenitor cells
+
+```{r opc_VP, message=FALSE, warning=FALSE, echo=FALSE, results='hide', fig.width=10, fig.height=6} 
+result_opc <- vp4sn(celltype_exp, "opc", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_opc_T040", "Oligodendrocyte progenitor cells", "#6aa84f")
+```
+
+## Endothelial cells
+
+```{r end_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
+result_end <- vp4sn(celltype_exp, "end", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_end_T040", "Endothelial cells", "#fff2cc")
+```
+
+```{r supplementary_material}
+### Getting variance results
+
+# function
+extract_vp <- function(res_vp, cell){
+  df <- res_vp %>% 
+    as.data.frame() %>% 
+    mutate(cell_type = cell, gene_name = rownames(res_vp)) %>%  
+    select(gene_name, cell_type, everything())
+  
+  rownames(df) <- NULL  # Remove os nomes das linhas
+  
+  return(df)
+}
+
+# extract vp 
+variance_ext <- extract_vp(result_ext[["vp"]], "ext")
+variance_inh <- extract_vp(result_inh[["vp"]], "inh")
+variance_mic <- extract_vp(result_mic[["vp"]], "mic")
+variance_ast <- extract_vp(result_ast[["vp"]], "ast")
+variance_oli <- extract_vp(result_oli[["vp"]], "oli")
+variance_opc <- extract_vp(result_opc[["vp"]], "opc")
+variance_end <- extract_vp(result_end[["vp"]], "end")
+
+final_matrix_variance <- variance_ext %>% 
+  bind_rows(variance_inh, variance_mic, variance_ast, variance_oli, variance_opc, variance_end)
+
+# Formatando para garantir que o excel br não altere a notação científica dos valores
+final_matrix_variance <- final_matrix_variance %>%
+  mutate(across(where(is.numeric), ~ format(., scientific = TRUE, digits = 15)))
+
+# Saving xlsx
+write.xlsx(final_matrix_variance, file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/variance_vp_sn_T040.xlsx", rowNames = FALSE)
+```
+
+# Session info
+```{r}
+sessionInfo()
+```

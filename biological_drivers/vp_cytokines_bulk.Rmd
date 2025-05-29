@@ -1,0 +1,186 @@
+---
+title: "Sources of variance for the cytokines - Bulk RNAseq"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> Biological contribution of phenotypic data on cytokine expression in the bulk RNAseq | 1,210 unique samples from DLPFC region
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(tidyverse)
+library(ggpubr)
+library(variancePartition)
+library(ggeasy)
+library(ggplot2)
+library(Matrix)
+library(openxlsx)
+library(dplyr)
+```
+
+```{r exprData, warning=FALSE} 
+data_bulk <- load ("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/bulk_DLPFC_2022.Rdata")
+phenotype_dt <- pheno_DLPFC
+```
+
+```{r gene_list, warning=FALSE,message=FALSE}
+# upload list of cytokines
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T015/list_cytokines_T015.txt"
+cytokines <- read.delim(file_path, header = TRUE, check.names = FALSE, stringsAsFactors = FALSE)
+cytokines <- subset(cytokines, select = -family) # I removed the 'family' column here because it had NA values
+ensembls = cytokines$ensembl
+```
+
+# VP for cytokines
+
+```{r gene_expression, warning=FALSE,message=FALSE, include=FALSE}
+# Filter the gene expression
+exprData_DLPFC$ensembl = gsub("(.*)\\.(.*)","\\1", rownames(exprData_DLPFC))
+exprData_DLPFC_filt = exprData_DLPFC[exprData_DLPFC$ensembl %in% cytokines$ensembl,]
+expr_target = merge(exprData_DLPFC_filt, cytokines, by = "ensembl")
+rownames(expr_target) = expr_target$symbol
+expr_target$ensembl = NULL
+expr_target$symbol = NULL
+```
+
+```{r apoe4, warning=FALSE, message=FALSE, include=FALSE}
+phenotype_dt$apoe4 <- as.factor(as.integer(grepl("4", phenotype_dt$apoe_genotype)))
+head(phenotype_dt)
+```
+
+```{r VP, warning=FALSE, echo=FALSE, message=FALSE, fig.width = 10, fig.height = 6}
+library(doParallel)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(ggbeeswarm)
+library(ggrepel)
+library(ggeasy)
+
+cl <- makeCluster(10)
+registerDoParallel(cl)
+
+phenotype_dt <- phenotype_dt[phenotype_dt$projid %in% colnames(expr_target), ]
+phenotype_dt_filt = phenotype_dt[, c("projid",
+                                     "cogng_demog_slope",
+                                     "cogng_path_slope",
+                                     "tangles_sqrt",
+                                     "amyloid_sqrt",
+                                     "gpath",
+                                     "cogdx_3gp",
+                                     "caa_4gp",
+                                     "age_death",
+                                     "msex",
+                                     "apoe4")]
+
+phenotype_dt_filt$cogdx_3gp <- as.factor(phenotype_dt_filt$cogdx_3gp)
+phenotype_dt_filt$caa_4gp <- as.factor(phenotype_dt_filt$caa_4gp)
+phenotype_dt_filt$msex <- as.factor(phenotype_dt_filt$msex)
+
+form <- ~ cogng_demog_slope + tangles_sqrt + amyloid_sqrt + gpath + (1|cogdx_3gp) + (1|caa_4gp) + age_death + (1|msex) + (1|apoe4)
+
+varPart_tx <- suppressWarnings(fitExtractVarPartModel(expr_target, form, phenotype_dt_filt))
+vp <- sortCols(varPart_tx)
+
+vp_m <- reshape2::melt(vp[,-ncol(vp)])
+vp_m$gene_label <- rownames(vp)
+vp_m <- vp_m %>% group_by(variable) %>% arrange(-value) %>%
+  mutate(gene_label = ifelse(row_number() <= 2, gene_label, ""))
+
+# Rename variables in the plot
+vp_m$variable <- recode(vp_m$variable,
+                        "cogng_demog_slope" = "Cognitive decline",
+                        "tangles_sqrt" = "PHFtau tangle density",
+                        "amyloid_sqrt" = "Amyloid-β load",
+                        "gpath" = "Global AD burden",
+                        "cogdx_3gp" = "AD diagnosis",
+                        "caa_4gp" = "Cerebral amyloid angiopathy",
+                        "age_death" = "Age of death",
+                        "msex" = "Sex",
+                        "apoe4" = "Apoe 4")
+
+vp_m <- vp_m %>%
+  mutate(value_percentage = value*100)
+
+gg <- ggplot(vp_m, aes(x = variable, y = value_percentage)) +
+  geom_violin(scale = "width") + 
+  geom_boxplot(outlier.shape = NA, width = 0.3) +
+  ggbeeswarm::geom_quasirandom(alpha = 0.5) +
+  ggrepel::geom_text_repel(aes(label = gene_label)) + 
+  theme_bw() + 
+  ggeasy::easy_rotate_x_labels(angle = 25, side = c("right")) +
+  labs(x = "Phenotype", y = "Explained variance (%)", title = "Bulk RNA-seq of 1,210 human brains") +
+  theme(
+    axis.title.y = element_text(size = 18),
+    axis.title.x = element_blank(),
+    axis.text = element_text(size = 14),  
+    plot.title = element_text(size = 20), 
+    legend.position = "none", 
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 25) 
+  )
+
+# Print the plot
+print(gg)
+
+# Save to PDF
+pdf(file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/T039/vp_cytokines_bulk_T039.pdf", width = 10, height = 6)
+print(gg)
+dev.off()
+
+# Save to PNG
+png(file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/T039/vp_cytokines_bulk_T039.png", width = 3000, height = 1800, res = 300)
+print(gg)
+dev.off()
+
+```
+
+```{r supplementary_material}
+vp_df <- as.data.frame(vp)
+colnames(vp_df) <- c("Cognitive decline", "Age of death", "Global AD burden", "Tangles density", "Amyloid accumulation", "Sex", "Cerebral amyloid angiopathy", "Apoe 4", "AD diagnosis", "Residuals")
+
+# Formatando para garantir que o excel br não altere a notação científica dos valores
+vp_df <- vp_df %>%
+  mutate(across(where(is.numeric), ~ format(., scientific = TRUE, digits = 15)))
+
+# Saving xlsx
+write.xlsx(vp_df, file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/T039/p_values_vp_bulk_T039.xlsx", rowNames = TRUE)
+```
+
+# Session info
+```{r}
+sessionInfo()
+```
