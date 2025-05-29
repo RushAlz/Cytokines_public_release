@@ -1,0 +1,195 @@
+---
+title: "Gene set enrichment analysis (GSEA) - Single-nuclei RNAseq dataset"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> 424 unique samples | DLPFC region | ROSMAP cohort
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(gprofiler2)
+library(dplyr)
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+# Cell types
+
+## Excitatory Neurons
+
+```{r expr_ext, echo=FALSE, warning=FALSE}
+# This R object was created during test T018
+# Character vector containing gene symbols from expressed genes in excitatory neurons
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T018/list_expr_ext_T033.RData")
+load(file_path)
+print("Cytokines expressed in excitatory neurons and used in GSEA:")
+print(list_expr_ext)
+```
+
+```{r table_gost_ext}
+gostres_ext <- gost(query = list_expr_ext, significant = TRUE, organism = "hsapiens")
+createDT(gostres_ext$result %>% arrange(p_value))
+```
+
+```{r graph_ext}
+gostplot(gostres_ext, interactive = TRUE)
+```
+
+## Inhibitory Neurons
+
+```{r expr_inh, echo=FALSE, warning=FALSE}
+# This R object was created during test T018
+# Character vector containing gene symbols from expressed genes in inhbitory neurons
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T018/list_expr_inh_T033.RData")
+load(file_path)
+print("Cytokines expressed in inhbitory neurons and used in GSEA:")
+print(list_expr_inh)
+```
+
+```{r table_gost_inh}
+gostres_inh <- gost(query = list_expr_inh, significant = TRUE, organism = "hsapiens")
+createDT(gostres_inh$result %>% arrange(p_value))
+```
+
+```{r graph_inh}
+gostplot(gostres_inh, interactive = TRUE)
+```
+
+## Microglia
+
+```{r expr_mic, echo=FALSE, warning=FALSE}
+# This R object was created during test T018
+# Character vector containing gene symbols from expressed genes in microglia
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T018/list_expr_mic_T033.RData")
+load(file_path)
+print("Cytokines expressed in microglia and used in GSEA:")
+print(list_expr_mic)
+```
+
+```{r table_gost_mic}
+gostres_mic <- gost(query = list_expr_mic, significant = TRUE, organism = "hsapiens")
+createDT(gostres_mic$result %>% arrange(p_value))
+```
+
+```{r graph_mic}
+gostplot(gostres_mic, interactive = TRUE)
+```
+
+## Astrocytes
+
+```{r expr_ast, echo=FALSE, warning=FALSE}
+# This R object was created during test T018
+# Character vector containing gene symbols from expressed genes in astrocytes
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T018/list_expr_ast_T033.RData")
+load(file_path)
+print("Cytokines expressed in astrocytes and used in GSEA:")
+print(list_expr_ast)
+```
+
+```{r table_gost_ast}
+gostres_ast <- gost(query = list_expr_ast, significant = TRUE, organism = "hsapiens")
+createDT(gostres_ast$result %>% arrange(p_value))
+```
+
+```{r graph_ast}
+gostplot(gostres_ast, interactive = TRUE)
+```
+
+## Oligodendrocytes
+
+```{r expr_oli, echo=FALSE, warning=FALSE}
+# This R object was created during test T018
+# Character vector containing gene symbols from expressed genes in oligodendrocytes
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T018/list_expr_oli_T033.RData")
+load(file_path)
+print("Cytokines expressed in oligodendrocytes and used in GSEA:")
+print(list_expr_oli)
+```
+
+```{r table_gost_oli}
+gostres_oli <- gost(query = list_expr_oli, significant = TRUE, organism = "hsapiens")
+createDT(gostres_oli$result %>% arrange(p_value))
+```
+
+```{r graph_oli}
+gostplot(gostres_oli, interactive = TRUE)
+```
+
+## OPC cells
+
+```{r expr_opc, echo=FALSE, warning=FALSE}
+# This R object was created during test T018
+# Character vector containing gene symbols from expressed genes in OPC cells
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T018/list_expr_opc_T033.RData")
+load(file_path)
+print("Cytokines expressed in eOPC cells and used in GSEA:")
+print(list_expr_opc)
+```
+
+```{r table_gost_opc}
+gostres_opc <- gost(query = list_expr_opc, significant = TRUE, organism = "hsapiens")
+createDT(gostres_opc$result %>% arrange(p_value))
+```
+
+```{r graph_opc}
+gostplot(gostres_opc, interactive = TRUE)
+```
+
+## Endothelial cells
+
+```{r expr_end, echo=FALSE, warning=FALSE}
+# This R object was created during test T018
+# Character vector containing gene symbols from expressed genes in endothelial cells
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T018/list_expr_end_T033.RData")
+load(file_path)
+print("Cytokines expressed in endothelial cells and used in GSEA:")
+print(list_expr_end)
+```
+
+```{r table_gost_end}
+gostres_end <- gost(query = list_expr_end, significant = TRUE, organism = "hsapiens")
+createDT(gostres_end$result %>% arrange(p_value))
+```
+
+```{r graph_end}
+gostplot(gostres_end, interactive = TRUE)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```

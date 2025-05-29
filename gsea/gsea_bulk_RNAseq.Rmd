@@ -1,0 +1,73 @@
+---
+title: "Gene set enrichment analysis (GSEA) - Bulk RNAseq"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> 424 unique samples | DLPFC region | ROSMAP cohort
+
+# GSEA
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(gprofiler2)
+library(dplyr)
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r expr_bulk_cytokines, echo=FALSE, warning=FALSE}
+# This R object was created during test T016
+# Character vector containing gene symbols from expressed genes in bulk data
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/T016/list_expr_bulk_T016.RData")
+load(file_path)
+print("Cytokines expressed in bulk ROSMAP data and used in GSEA:")
+print(list_expr_bulk)
+```
+
+```{r table_gost}
+gostres <- gost(query = list_expr_bulk, significant = TRUE, organism = "hsapiens")
+createDT(gostres$result %>% arrange(p_value))
+```
+
+```{r graph}
+gostplot(gostres, interactive = TRUE)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
