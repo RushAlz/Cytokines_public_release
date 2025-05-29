@@ -1,0 +1,496 @@
+---
+title: "Exploratory Analysis"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> Bulk RNAseq dataset | 1,210 unique samples | DLPFC region | ROSMAP cohort
+
+```{r clean.variables, echo=FALSE}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rstatix)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(stats)
+library(kableExtra)
+library(ggfortify)
+library(openxlsx)
+options(encoding = "UTF-8")
+```
+
+```{r dataset upload, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}   
+dados <- load ("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/bulk_DLPFC_2022.Rdata")
+```
+
+```{r PCA_check, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}   
+##exprData4net = as.data.frame(exprData_DLPFC) 
+##res.pca = prcomp(t(exprData4net)) 
+
+##autoplot(res.pca, data = as.data.frame(metadata_DLPFC), colour = 'Batch') +
+ ## scale_colour_viridis_d() +
+ ## theme_classic()
+```
+
+```{r phenotype_matrix, warning=FALSE,message=FALSE}   
+# head(pheno_DLPFC)
+# table(pheno_DLPFC$cogdx_3grp)
+
+#######################
+# cogdx_3grp code 
+# cogdx_3grp == 0 <- "NCI"
+# cogdx_3grp == 1 <- "MCI"
+# cogdx_3grp == 2 <- "AD"
+#######################
+```
+
+```{r HelperFunctions, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+
+# Demographics  
+
+## Donors
+
+```{r donors count, message=FALSE, warning=FALSE, echo=FALSE}
+length(unique(pheno_DLPFC$projid)) #a função unique tira os valores duplicados
+```
+
+## Diagnosis
+
+At the time of death, all available clinical data were reviewed by a neurologist with expertise in dementia, and a summary diagnostic opinion was rendered regarding the most likely clinical diagnosis at the time of death. Summary diagnoses were made blinded to all postmortem data. Case conferences including one or more neurologists and a neuropsychologist were used for consensus on selected cases.
+ 
+NCI: Non cognitive impairment 
+MCI: Mild cognitive impairment 
+AD: Alzheimer's Disease
+
+Source: [Rush Alzheimer's Disease Center (RADC)](https://www.radc.rush.edu/docs/var/detail.htm?category=Clinical+Diagnosis&subcategory=Final+consensus+diagnosis&variable=cogdx )
+
+```{r diagnosis, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+
+#neste chunck há a comparação da quantidade de homens e mulheres com cada um dos diagnósticos: NCI, MCI, AD
+
+pheno_DLPFC$cogdx_3gp <- factor(pheno_DLPFC$cogdx_3gp, 
+                                levels = c("3", "2", "1"))
+
+pheno_DLPFC$msex<- as.factor(pheno_DLPFC$msex)
+
+p1 <- pheno_DLPFC %>%
+  group_by(cogdx_3gp, 
+           msex) %>% #criação dos grupos
+  filter (cogdx_3gp %in% c(1,2,3)) %>% #aqui eu estou filtrando para não mostrar a coluna de NA, apenas as que tem valores
+  summarise(
+    count_diagnosis = n ()
+  ) %>%
+  ggplot(aes(x = cogdx_3gp, 
+             y = count_diagnosis, 
+             fill = msex,
+             label = count_diagnosis)) +
+  geom_bar(stat = "identity",
+           position = "dodge") +
+   labs(x="Diagnosis", 
+       y="Frequency") +
+  scale_y_continuous(limits = c(0, 400), breaks = c(0, 100, 200, 300, 400)) +
+  scale_x_discrete(labels = c("1" = "NCI", 
+                              "2" = "MCI", 
+                              "3" = "AD")) +
+  scale_colour_manual(name="Sex", 
+                      values=c("0" = "#F4A582", 
+                               "1"="#77AADD"), 
+                      labels=c("0"="female", 
+                               "1"="male")) +
+  scale_fill_manual(name="Sex", 
+                    values = c("0" = "#F4A582", 
+                               "1"="#77AADD"), 
+                    labels=c("0"="Female", 
+                             "1"="Male")) +
+  geom_label(size = 3.5, alpha = 0.7, position = position_dodge(width = 1)) +
+  theme_classic()
+
+print (p1)
+
+```
+
+
+## Age at baseline assessment
+
+The age at baseline assessment is calculated from subtracting the date of birth from the date of the baseline assessment and dividing by days per year (365.25).
+
+This variable is related to the age at which the donor entered the cohort
+
+```{r baseline age, warning=FALSE, echo=FALSE}
+
+# aqui, um gráfico de histograma representa a distruibuição da idade dos participantes no momento da adesão ao estudo
+# duas linhas, vermelha e azul, representam a idade média de adesão ao estudo de mulheres e homens respectivamente
+
+
+mean_baseline_f = mean(pheno_DLPFC[pheno_DLPFC$msex == "0", "age_bl"], na.rm = T)
+sd_baseline_f = sd(pheno_DLPFC[pheno_DLPFC$msex == "0", "age_bl"], na.rm = T)
+print(paste0("Average age of death for women: ",mean_baseline_f))
+print(paste0("Standard deviation: ",sd_baseline_f))
+
+mean_baseline_m = mean(pheno_DLPFC[pheno_DLPFC$msex == "1", "age_bl"], na.rm = T)
+sd_baseline_m= sd(pheno_DLPFC[pheno_DLPFC$msex == "1", "age_bl"], na.rm = T)
+print(paste0("Average age of death for men: ",mean_baseline_m))
+print(paste0("Standard deviation: ",sd_baseline_m))
+
+mean_baseline = mean(pheno_DLPFC$age_bl, na.rm = T)
+sd_baseline= sd(pheno_DLPFC$age_bl, na.rm = T)
+print(paste0("Average entry age for cohorts: ",mean_baseline))
+print(paste0("Standard deviation: ",sd_baseline))
+
+p2 <- ggplot(pheno_DLPFC, aes(x=age_bl, fill=msex)) +
+  geom_histogram(bins = 25, colour='black', position = "stack") +
+  labs(x="Age of entry into cohorts", y="Volunteer Frequency") +
+   scale_colour_manual(name="Sex", values=c("0" = "#F4A582", "1"="#77AADD"), labels=c("0"="Female", "1"="Male")) +
+  scale_fill_manual(name="Sex", values=c("0" = "#F4A582", "1"="#77AADD"), labels=c("0"="Female", "1"="Male"))+
+   geom_vline(xintercept=mean_baseline_f, color = "red", linetype="dashed") +
+  geom_vline(xintercept=mean_baseline_m, color = "blue", linetype="dashed") +
+  theme_classic()
+
+print (p2)
+
+```
+
+
+## Age by donors  
+
+Age of death is calculated from subtracting date of birth from date of death and dividing the difference by days per year (365.25).
+
+For participants in autopsy cohorts, the exact date of death is known for most participants as it is the day an autopsy was performed. In all cohorts, in addition to annual evaluations, participants are also contacted quarterly to determine vital status and changes in health, and death is occasionally learned of during quarterly contacts.
+  
+```{r age_death, warning=FALSE, echo=FALSE}
+
+mean_death_f = mean(pheno_DLPFC[pheno_DLPFC$msex == "0", "age_death"], na.rm = T)
+sd_death_f = sd(pheno_DLPFC[pheno_DLPFC$msex == "0", "age_death"], na.rm = T)
+print(paste0("Average age of death for women: ",mean_death_f))
+print(paste0("Standard deviation: ",sd_death_f))
+
+mean_death_m = mean(pheno_DLPFC[pheno_DLPFC$msex == "1", "age_death"], na.rm = T)
+sd_death_m = sd(pheno_DLPFC[pheno_DLPFC$msex == "1", "age_death"], na.rm = T)
+print(paste0("Average age of death for men: ",mean_death_m))
+print(paste0("Standard deviation: ",sd_death_m))
+
+mean_death = mean(pheno_DLPFC$age_death, na.rm = T)
+sd_death = sd(pheno_DLPFC$age_death, na.rm = T)
+print(paste0("Average age of death overall: ",mean_death))
+print(paste0("Standard deviation: ",sd_death))
+
+p3 <- ggplot(pheno_DLPFC, aes(x=age_death, fill=msex)) +
+  geom_histogram(bins = 25, colour='black', position = "stack") +
+  labs(x="Age of death", y="Volunteer Frequency") +
+   scale_colour_manual(name="Sex", values=c("0" = "#F4A582", "1"="#77AADD"), labels=c("0"="Female", "1"="Male")) +
+  scale_fill_manual(name="Sex", values=c("0" = "#F4A582", "1"="#77AADD"), labels=c("0"="Female", "1"="Male")) +
+  geom_vline(xintercept=mean_death_f, color = "red", linetype="dashed") +
+  geom_vline(xintercept=mean_death_m, color = "blue", linetype="dashed") +
+  theme_classic()
+
+print (p3)
+
+```
+
+## Years of education (box plot)  
+
+The years of education variable is based on the number of years of regular school reported at baseline cognitive testing.
+
+```{r years of education, echo=FALSE, message=FALSE, warning=FALSE}
+
+# boxplot referente aos anos de educação formal dos participantes separados por sexo
+# preciso conferir essa distribuição porque não parece correto
+# há concentrações de amostras nos quartis
+
+mean_educ_f = mean(pheno_DLPFC[pheno_DLPFC$msex == "0", "educ"], na.rm = T)
+sd_educ_f = sd(pheno_DLPFC[pheno_DLPFC$msex == "0", "educ"], na.rm = T)
+print(paste0("Average years of formal education for women: ",mean_educ_f))
+print(paste0("Standard deviation: ",sd_educ_f))
+
+mean_educ_m = mean(pheno_DLPFC[pheno_DLPFC$msex == "1", "educ"], na.rm = T)
+sd_educ_m = sd(pheno_DLPFC[pheno_DLPFC$msex == "1", "educ"], na.rm = T)
+print(paste0("Average years of formal education for men: ",mean_educ_m))
+print(paste0("Standard deviation: ",sd_educ_m))
+
+mean_educ = mean(pheno_DLPFC$educ, na.rm = T)
+sd_educ = sd(pheno_DLPFC$educ, na.rm = T)
+print(paste0("Average years of general formal education: ",mean_educ))
+print(paste0("Standard deviation: ",sd_educ))
+
+p4 <- ggplot(pheno_DLPFC, aes(x = factor(msex, levels = c("0", "1"), labels = c("Female", "Male")), 
+                              y = educ, fill = factor(msex))) +
+  geom_boxplot(notch = TRUE, outlier.shape = NA, na.rm = TRUE) + 
+  geom_jitter(width = 0.2, shape = 16, size = 1.5, alpha = 0.6) +
+  labs(x = "Sex", y = "Years of formal education") +
+  scale_fill_manual(values = c("0" = "#F4A582", "1" = "#77AADD")) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  stat_compare_means(method = "t.test", label = "p.format", 
+                     comparisons = list(c("Female", "Male")), 
+                     bracket.size = 0.5, tip.length = 0.02)
+
+print (p4)
+
+```
+
+## Donors by cohort  
+
+```{r donors by cohort, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+
+#gráfico de colunas mostrando a distruição da quantidade de participantes por estudo: ROS, MAP, MAR
+
+df = as.data.frame(table(pheno_DLPFC$study))
+colnames(df) <- c("Study", "Frequency")
+
+ggplot(data = df, aes(x=Study, y=Frequency)) +
+  geom_text(aes(label=Frequency), vjust=-0.5, size=3.5) +
+  geom_bar(stat = "identity", width=0.5, color="#0FA3B1", fill="#EDF2EF") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+## Race  
+
+Race is based on self-report at baseline using the following question:
+
+What is your race?
+
+
+```{r race histogram, echo = FALSE, message=FALSE, results='hide'}
+
+#gráfico de barras mostrando a quantidade de doadores por raça
+
+p4 <- ggplot(data = pheno_DLPFC, aes(x = race)) +
+  geom_bar(fill="#C8963E")+ 
+  labs(x="Race", y="Frequency") +
+  scale_x_discrete(labels = c("1" = "White", 
+                              "2" = "Black or African American", 
+                              "3" = "American Indian or Alaska Native",
+                              "6" = "Other")) +
+  coord_flip() + 
+  theme_classic()
+
+print (p4)
+
+```
+
+## APOE frequency 
+
+```{r APOE frequency, echo = FALSE, message=FALSE, results='hide'}
+
+pheno_DLPFC$apoe_genotype <- as.factor(pheno_DLPFC$apoe_genotype)
+
+pheno_DLPFC %>%
+  group_by(apoe_genotype) %>%
+summarise(
+    count_apoe_genotype = n ()
+  ) %>%
+  
+ ggplot(aes(x = apoe_genotype, 
+             y = count_apoe_genotype, 
+             label = count_apoe_genotype)) +
+  geom_bar(stat = "identity",
+           position = "dodge") +
+   labs(x="APOE genotype", 
+       y="Frequency") +
+  geom_label(size = 3.5, alpha = 0.3, position = position_dodge(width = 1)) +
+  theme_minimal()
+```
+
+
+## APOE genotype by diagnosis  
+
+```{r APOE_diagnosis, echo = FALSE, message=FALSE, results='hide', warning=FALSE}
+
+pheno_DLPFC$apoe_genotype <- as.factor(pheno_DLPFC$apoe_genotype)
+pheno_DLPFC$cogdx_3gp <- as.factor(pheno_DLPFC$cogdx_3gp)
+
+pheno_DLPFC %>%
+  group_by(cogdx_3gp, 
+           apoe_genotype) %>% 
+  summarise(
+    count_apoe_diagnosis = n ()
+  ) %>%
+  
+ ggplot(aes(x = apoe_genotype, 
+             y = count_apoe_diagnosis, 
+             fill = cogdx_3gp,
+             label = count_apoe_diagnosis)) +
+  geom_bar(stat = "identity",
+           position = "dodge") +
+   labs(x="APOE genotype", 
+       y="Frequency") +
+  scale_colour_manual(name="diagnosis", 
+                      values=c("1" = "#9BE564", 
+                               "2"="#D7F75B",
+                               "3" = "#D19C1D"), 
+                      labels=c("1" = "NCI", 
+                               "2" = "MCI", 
+                               "3" = "AD")) +
+  scale_fill_manual(name="diagnosis",
+                    values=c("1" = "#9BE564", 
+                             "2"="#D7F75B",
+                             "3" = "#D19C1D"), 
+                    labels=c("1" = "NCI", 
+                             "2" = "MCI", 
+                             "3" = "AD")) +
+  theme_classic()
+```
+
+## TOMM40 genotype frequency 
+
+```{r TOMM40 frequency, echo = FALSE, message=FALSE, results='hide', warning=FALSE}
+
+pheno_DLPFC$tomm40_hap <- as.factor(pheno_DLPFC$tomm40_hap)
+
+pheno_DLPFC %>%
+  group_by(tomm40_hap) %>%
+summarise(
+    count_tomm40_genotype = n ()
+  ) %>%
+  
+ ggplot(aes(x = tomm40_hap, 
+             y = count_tomm40_genotype, 
+             label = count_tomm40_genotype)) +
+  geom_bar(stat = "identity",
+           position = "dodge") +
+   labs(x="TOMM40 genotype", 
+       y="Frequency") +
+  geom_label(size = 3.5, alpha = 0.3, position = position_dodge(width = 1)) +
+  theme_minimal()
+```
+
+
+## TOMM40 genotype by diagnosis  
+
+```{r TOMM40_diagnosis, echo = FALSE, message=FALSE, results='hide', warning=FALSE}
+
+pheno_DLPFC$tomm40_hap <- as.factor(pheno_DLPFC$tomm40_hap)
+pheno_DLPFC$cogdx_3gp <- as.factor(pheno_DLPFC$cogdx_3gp)
+
+pheno_DLPFC %>%
+  group_by(cogdx_3gp, 
+           tomm40_hap) %>% 
+  summarise(
+    count_tomm40_diagnosis = n ()
+  ) %>%
+  
+ ggplot(aes(x = tomm40_hap, 
+             y = count_tomm40_diagnosis, 
+             fill = cogdx_3gp,
+             label = count_tomm40_diagnosis)) +
+  geom_bar(stat = "identity",
+           position = "dodge") +
+   labs(x="TOMM40 genotype", 
+       y="Frequency") +
+  scale_colour_manual(name="diagnosis", 
+                      values=c("1" = "#9BE564", 
+                               "2"="#D7F75B",
+                               "3" = "#D19C1D"), 
+                      labels=c("1" = "NCI", 
+                               "2" = "MCI", 
+                               "3" = "AD")) +
+  scale_fill_manual(name="diagnosis",
+                    values=c("1" = "#9BE564", 
+                             "2"="#D7F75B",
+                             "3" = "#D19C1D"), 
+                    labels=c("1" = "NCI", 
+                             "2" = "MCI", 
+                             "3" = "AD")) +
+  theme_classic()
+```
+
+```{r mat_supp_phenotype, warning=FALSE, echo = FALSE, message=FALSE, results='hide'}
+# New id's
+set.seed(123)  
+id_map <- data.frame(
+  projid = unique(pheno_DLPFC$projid),
+  new_id = sample(1:length(unique(pheno_DLPFC$projid)), length(unique(pheno_DLPFC$projid)), replace = FALSE)
+)
+
+# new df with new ids
+pheno_suppl <- pheno_DLPFC %>%
+  left_join(id_map, by = "projid") %>%
+  select(new_id, study, educ, msex, age_bl, apoe_genotype, age_death, cogng_demog_slope, 
+         cogng_path_slope, tangles_sqrt, amyloid_sqrt, caa_4gp, gpath, ad_dementia_status, cogdx_3gp)
+
+```
+
+```{r mat_suppl_summary, warning=FALSE, echo = FALSE, message=FALSE, results='hide'}
+# follow up 
+pheno_DLPFC <- pheno_DLPFC %>%
+  mutate(length_follow_up = age_death - age_bl)
+
+# apoe 4
+pheno_DLPFC$apoe4 <- as.factor(as.integer(grepl("4", pheno_DLPFC$apoe_genotype)))
+
+# Criar tabela resumo corrigida
+summary_table <- data.frame(
+  Description = c(
+    "n", 
+    "Age baseline, mean (SD), y", 
+    "Age at death, mean (SD), y", 
+    "Female sex, No. (%)", 
+    "Years of formal education, mean (SD), y",
+    "Length of follow-up, mean (SD), y",
+    "Global cognition decline rate (SD)",
+    "MCI, No. (%)",
+    "AD, No. (%)",
+    "Tangle density, mean (SD)",
+    "Amyloid density, mean (SD)",
+    "APOE4 allele carriers"
+  ),
+  
+  Bulk_RNASeq = c(
+    nrow(pheno_DLPFC),
+    sprintf("%.1f (%.1f)", mean(pheno_DLPFC$age_bl, na.rm = TRUE), sd(pheno_DLPFC$age_bl, na.rm = TRUE)),
+    sprintf("%.1f (%.1f)", mean(pheno_DLPFC$age_death, na.rm = TRUE), sd(pheno_DLPFC$age_death, na.rm = TRUE)), 
+    sprintf("%d (%.1f%%)", sum(pheno_DLPFC$msex == 0, na.rm = TRUE), 
+            (sum(pheno_DLPFC$msex == 0, na.rm = TRUE) / nrow(pheno_DLPFC)) * 100),
+    sprintf("%.1f (%.1f)", mean(pheno_DLPFC$educ, na.rm = TRUE), sd(pheno_DLPFC$educ, na.rm = TRUE)),
+    sprintf("%.1f (%.1f)", mean(pheno_DLPFC$length_follow_up, na.rm = TRUE), sd(pheno_DLPFC$length_follow_up, na.rm = TRUE)),
+    sprintf("%.2f (%.2f)", mean(pheno_DLPFC$cogng_demog_slope, na.rm = TRUE), sd(pheno_DLPFC$cogng_demog_slope, na.rm = TRUE)), 
+    sprintf("%d (%.1f%%)", sum(pheno_DLPFC$cogdx_3grp == 1, na.rm = TRUE), 
+            (sum(pheno_DLPFC$cogdx_3grp == 1, na.rm = TRUE) / nrow(pheno_DLPFC)) * 100),
+    sprintf("%d (%.1f%%)", sum(pheno_DLPFC$ad_dementia_status == 1, na.rm = TRUE), 
+            (sum(pheno_DLPFC$ad_dementia_status == 1, na.rm = TRUE) / nrow(pheno_DLPFC)) * 100),
+    sprintf("%.2f (%.2f)", mean(pheno_DLPFC$tangles_sqrt, na.rm = TRUE), sd(pheno_DLPFC$tangles_sqrt, na.rm = TRUE)), 
+    sprintf("%.2f (%.2f)", mean(pheno_DLPFC$amyloid_sqrt, na.rm = TRUE), sd(pheno_DLPFC$amyloid_sqrt, na.rm = TRUE)),
+    sprintf("%d (%.1f%%)", sum(pheno_DLPFC$apoe4 == 1, na.rm = TRUE),
+            (sum(pheno_DLPFC$apoe4 == 1, na.rm = TRUE) / nrow(pheno_DLPFC)) * 100)
+  )
+)
+
+# Visualizar a tabela
+print(summary_table, row.names = FALSE)
+
+```
