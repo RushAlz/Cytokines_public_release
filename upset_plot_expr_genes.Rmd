@@ -1,0 +1,327 @@
+---
+title: "Upset plot w/ cytokines expressed in bulk and single nuclei data"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> Bulk RNAseq: 1,210 unique samples | 
+> Single-nuclei RNAseq: 424 unique samples (subset) | 
+> Brain region: DLPFC | 
+> ROSMAP cohort
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(UpSetR)
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r set_dir, warning=FALSE,message=FALSE, include=FALSE} 
+work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T025"
+```
+
+```{r list_expr_bulk_upload, warning=FALSE, message=FALSE} 
+# This R object was created during test T016
+# Character vector containing gene symbols from expressed genes in bulk data
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/T016/list_expr_bulk_T016.RData")
+# Load object
+load(file_path)
+```
+
+```{r list_expr_sn_upload, warning=FALSE, message=FALSE} 
+# This R object was created during test T018
+# List of gene symbols for expressed genes in each cell type of single nuclei data
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T018/list_expr_sn_T018.RData")
+# Load object
+load(file_path)
+```
+
+
+# Upset plot
+
+Expressed cytokines genes in the DLPFC region using bulk and single nuclei RNA-seq data
+
+```{r merge_bulk_sn, warning=FALSE,message=FALSE, include=FALSE} 
+# Merging
+list_expr_merged <- sn_expr_genes
+list_expr_merged$Bulk <- list_expr_bulk
+# 'Bulk' as the first list
+list_expr_merged <- list_expr_merged[c("Bulk", setdiff(names(list_expr_merged), "Bulk"))]
+```
+
+```{r upset_plot, warning=FALSE, message=FALSE}
+# Upset plot
+upset_plot <- upset(
+  fromList(list_expr_merged), 
+  order.by = "freq", 
+  sets.bar.color = 5, 
+  nsets = 8, 
+  text.scale = 1.3
+)
+
+print(upset_plot)
+```
+
+# Analysis
+
+### Cortex
+
+The following cytokines were expressed in the cortex (bulk + sn) of ROSMAP participants: <br>
+```{r expr_genes_cortex}
+merged_list <- unlist(list_expr_merged)
+cytokines_unique <- unique(merged_list)
+total_cytokines_cortex <- length(cytokines_unique)
+print(total_cytokines_cortex)
+print(cytokines_unique)
+```
+
+### Bulk data
+
+The following cytokines were exclusively expressed in the bulk data and do not appear in the single nuclei list:<br>
+```{r expr_genes_bulk}
+# Getting unique genes expressed in bulk data
+bulk_unique_genes <- setdiff(list_expr_merged$Bulk, unlist(list_expr_merged[-1]))
+print(bulk_unique_genes)
+```
+
+### Bulk and single nuclei
+
+The following cytokines are expressed both in the bulk and single nuclei data (at least one cell type):<br>
+```{r expr_bulk_sn}
+# Expressed genes in bulk data
+genes_bulk <- list_expr_merged$Bulk
+# Genes expressed in at least one cell type in single nuclei data.
+genes_cell_type <- unlist(list_expr_merged[-1])
+# Intersection of genes expressed in bulk RNAseq and single nuclei RNAseq datasets
+genes_bulk_and_cell_type <- intersect(genes_bulk, genes_cell_type)
+# Expressed genes both at bulk and single nuclei data
+print (genes_bulk_and_cell_type)
+```
+### Only single nuclei
+
+The following cytokines were exclusively expressed in the single nuclei data and do not appear in the bulk list:<br>
+
+```{r expr_sn}
+# Genes expressed in at least one cell type
+genes_cell_type <- unlist(list_expr_merged[-1])
+
+# Expressed genes in bulk data
+genes_bulk <- list_expr_merged$Bulk
+
+# Obtain genes exclusively expressed in the cell types and not in the bulk
+sn_unique_genes <- setdiff(genes_cell_type, genes_bulk)
+
+print(sn_unique_genes)
+```
+### All cell types and bulk
+
+The following cytokines are expressed by all cell types:<br>
+
+```{r expr_genes_all_data}
+genes_microglia <- list_expr_merged$Microglia
+genes_excitatory_neurons <- list_expr_merged$"Excitatory neurons"
+genes_inhibitory_neurons <- list_expr_merged$"Inhibitory neurons"
+genes_astrocytes <- list_expr_merged$Astrocytes
+genes_opc_cells <- list_expr_merged$"OPC cells"
+genes_endothelial_cells <- list_expr_merged$"Endothelial cells"
+genes_oligodendrocytes <- list_expr_merged$"Oligodendrocytes"
+
+# Intersection
+expr_all_data <- Reduce(intersect, list(genes_microglia, genes_excitatory_neurons, genes_inhibitory_neurons, genes_astrocytes, genes_opc_cells, genes_endothelial_cells, genes_oligodendrocytes))
+
+print(expr_all_data)
+```
+
+### Only in oligodendrocytes
+
+The following cytokines were exclusively expressed in oligodendrocytes:<br>
+
+```{r expr_genes_oli}
+# Get genes expressed in oligodendrocytes
+genes_oligodendrocytes <- list_expr_merged$"Oligodendrocytes"
+
+# Filter to get genes expressed without oli
+filtered_data <- unlist(list_expr_merged[-which(names(list_expr_merged) == "Oligodendrocytes")])
+
+# Get genes expressed exclusively in oligodendrocytes
+vip_cytokines_oli <- setdiff(genes_oligodendrocytes, filtered_data)
+
+print(vip_cytokines_oli)
+```
+
+### Only in microglia
+
+The following cytokines were exclusively expressed in microglia:<br>
+
+```{r expr_genes_mic}
+# Get expressed genes on microglia
+genes_microglia <- list_expr_merged$Microglia
+
+# Filter data to get all the expressed genes without microglia
+filtered_genes <- unlist(list_expr_merged[-which(names(list_expr_merged) == "Microglia")])
+
+# Get only the expressed genes on mic
+vip_cytokines_mic <- setdiff(genes_microglia, filtered_genes)
+
+print(vip_cytokines_mic)
+```
+
+### Only in neurons
+
+The following cytokines were exclusively expressed in excitatory and inhibitory neurons:<br>
+
+```{r expr_genes_neurons}
+# Get expressed genes in ext
+genes_excitatory_neurons <- list_expr_merged$"Excitatory neurons"
+
+# Get expressed genes in inh
+genes_inhibitory_neurons <- list_expr_merged$"Inhibitory neurons"
+
+# Filter data without ext, inh
+filtered_data <- unlist(list_expr_merged[-which(names(list_expr_merged) %in% c("Excitatory neurons", "Inhibitory neurons"))])
+
+# Get expressed genes only expressed in neurons
+vip_cytokines_neurons <- setdiff(intersect(genes_excitatory_neurons, genes_inhibitory_neurons), filtered_data)
+
+print(vip_cytokines_neurons)
+```
+
+### Bulk and excitatory neurons
+
+The following cytokines were exclusively expressed in the bulk and excitatory neurons:<br>
+
+```{r expr_genes_bulk_ext}
+# Get expressed genes in bulk
+genes_bulk <- list_expr_merged$Bulk
+
+# Get expressed genes in ext
+genes_excitatory_neurons <- list_expr_merged$"Excitatory neurons"
+
+# Intersection btw ext and bulk
+cytokines_bulk_ext <- intersect(genes_bulk, genes_excitatory_neurons)
+
+# Filter to remove other cell types
+vip_cytokines_bulk_ext <- setdiff(cytokines_bulk_ext, unlist(list_expr_merged[-which(names(list_expr_merged) %in% c("Excitatory neurons", "Bulk"))]))
+
+print(vip_cytokines_bulk_ext)
+```
+
+### Bulk and inhibitory neurons
+
+The following cytokines were exclusively expressed in the bulk and inhibitory neurons:<br>
+
+```{r expr_genes_bulk_inh}
+# Get expressed genes in bulk
+genes_bulk <- list_expr_merged$Bulk
+
+# Get expressed genes in inh
+genes_inhibitory_neurons <- list_expr_merged$"Inhibitory neurons"
+
+# Get expressed genes bulk and inh
+cytokines_bulk_inh <- intersect(genes_bulk, genes_inhibitory_neurons)
+
+# Filter to remove other cell types
+vip_cytokines_bulk_inh <- setdiff(cytokines_bulk_inh, unlist(list_expr_merged[-which(names(list_expr_merged) %in% c("Inhibitory neurons", "Bulk"))]))
+
+print(vip_cytokines_bulk_inh)
+```
+
+### Bulk and microglia
+
+The following cytokines were exclusively expressed in the bulk and microglia:<br>
+
+```{r expr_genes_bulk_mic}
+# Get expressed bulk genes
+genes_bulk <- list_expr_merged$Bulk
+
+# Get expressed genes in mic
+genes_microglia <- list_expr_merged$Microglia
+
+# Intersection bulk and mic
+cytokines_bulk_mic <- intersect(genes_bulk, genes_microglia)
+
+# Filter to remove other cell types
+vip_cytokines_bulk_mic <- setdiff(cytokines_bulk_mic, unlist(list_expr_merged[-which(names(list_expr_merged) %in% c("Microglia", "Bulk"))]))
+
+print(vip_cytokines_bulk_mic)
+```
+
+### Bulk and astrocytes
+
+The following cytokines were exclusively expressed in the bulk and astrocytes:<br>
+
+```{r expr_genes_bulk_ast}
+# Get expressed bulk genes
+genes_bulk <- list_expr_merged$Bulk
+
+# Get expressed astrocytes genes
+genes_astrocytes <- list_expr_merged$Astrocytes
+
+# Intersection btw ast and bulk
+cytokines_bulk_ast <- intersect(genes_bulk, genes_astrocytes)
+
+# filter to remove the expression from other cell types
+vip_cytokines_bulk_ast <- setdiff(cytokines_bulk_ast, unlist(list_expr_merged[-which(names(list_expr_merged) %in% c("Astrocytes", "Bulk"))]))
+
+print(vip_cytokines_bulk_ast)
+```
+
+### Bulk and endothelial cells
+
+The following cytokines were exclusively expressed in the bulk and endothelial cells:<br>
+
+```{r expr_genes_bulk_end}
+# Get the genes expressed in bulk
+genes_bulk <- list_expr_merged$Bulk
+
+# Get the genes expressed in endothelial cells
+genes_endothelial_cells <- list_expr_merged$"Endothelial cells"
+
+# Find the intersection of the sets of genes expressed in bulk and endothelial cells
+cytokines_bulk_end <- intersect(genes_bulk, genes_endothelial_cells)
+
+# Filter the intersection to remove genes expressed in other cell types.
+vip_cytokines_bulk_end <- setdiff(cytokines_bulk_end, unlist(list_expr_merged[-which(names(list_expr_merged) %in% c("Endothelial cells", "Bulk"))]))
+
+print(vip_cytokines_bulk_end)
+```
+
+# Session info
+```{r session info}
+sessionInfo()
+```
