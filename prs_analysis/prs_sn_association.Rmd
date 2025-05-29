@@ -1,0 +1,544 @@
+---
+title: "Association analysis of AD polygenic risk scores (AD-PRS) with cytokine expression"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Ricardo A. Vialle, PhD
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> single-nuclei RNAseq dataset | 424 unique samples from DLPFC
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(ggbeeswarm)
+library(scales)
+library(ggsci)
+library(patchwork)
+library(gtools)
+library(circlize)
+library(RColorBrewer)
+library(readxl)
+library(fgsea)
+library(foreach)
+library(doParallel)
+library(openxlsx)
+```
+
+```{r set_dir, warning=FALSE, message=FALSE, include=FALSE} 
+work_dir = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T053"
+```
+
+# PRS analysis
+
+## Upload data
+
+```{r upload_data, warning=FALSE, message=FALSE} 
+# Pheno data
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/pheno_SN.Rdata"
+load(file_path)
+pheno <- pheno_SN
+
+# SN expression data
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/snRNA_pseudoBulk_7majCellTypes.rds")
+celltype_exp <- readRDS(file_path)
+maj_celltypes = c("ext","inh","mic","ast","oli","opc","end")
+
+# Cytokines list
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T049/new_cytokines_families_T049.xlsx"
+cytokines_list <- read_excel(file_path)
+
+# PRS data
+prs_combined = fread(paste0(work_dir,"/PRS_combined.csv")) %>% as.data.frame
+
+# Interested PRS code
+prs_id = "ADPRS_Bellenguez_2022_Pt_0.0001"
+# prs_id = "ADPRS_Bellenguez_2022_Pt_0.0001_exAPOE"
+```
+
+```{r gsea_function, warning=FALSE, message=FALSE, include = FALSE} 
+run_GSEA <- function(my_list_of_genes, pathways_list = GO_FEA, 
+                     threads = 2,
+                     minSize = 10,
+                     maxSize = Inf,
+                     nPermSimple = 10000,
+                     eps = 0){
+  # Libraries
+  if (!require("fgsea")) install.packages("fgsea"); library(fgsea)
+  if (!require("foreach")) install.packages("foreach"); library(foreach)
+  if (!require("doParallel")) install.packages("doParallel"); library(doParallel)
+  doParallel::registerDoParallel(cores = threads) #package to running loops in parallel
+  
+  # Treating data
+  if(!is.list(my_list_of_genes)){
+    my_list_of_genes = list(GeneList = my_list_of_genes)
+  }
+  
+  # Data processing
+  enrich_res_df = foreach(i = 1:length(my_list_of_genes), .combine=rbind) %dopar% { # combine the results into a df
+    set.seed(2020)
+    GeneSet = names(my_list_of_genes)[i]
+    fgsea.ovca = fgsea::fgseaMultilevel(pathways = pathways_list, # list of genes to check
+                                 stats = sort(my_list_of_genes[[GeneSet]], decreasing = T),
+                                 nproc = floor(threads/length(my_list_of_genes)), # how many CPU cores should be allocated to this analysis 
+                                 minSize = minSize, # minimal size of a gene set to test
+                                 maxSize = maxSize, # maximal size of a gene set to test
+                                 nPermSimple = nPermSimple, # number of permutations
+                                 eps = eps, # this parameter sets the boundary for calculating the p value
+                                 scoreType = "std") # default
+    #fgsea.ovca$leadingEdge = NULL
+    fgsea.ovca$GeneSet = GeneSet
+    fgsea.ovca
+  }
+  
+  # P value adjustment
+  enrich_res_df$padj = p.adjust(enrich_res_df$pval, method = "BH") # new column w/ p-value adjusted by Benjamini & Hochberg method, which controls the False Discovery Rate (FDR)
+  enrich_res_df = enrich_res_df[order(enrich_res_df$padj),] # ordering df according to p value adjusted
+  return(enrich_res_df)  
+}
+```
+
+<!----------- Start -------------->
+
+## PRS deciles distribution
+
+```{r prs, warning=FALSE, message=FALSE, fig.width=10, fig.height=6} 
+# New df containing only interested PRS values
+prs = prs_combined[,c("projid",prs_id)]
+colnames(prs) = c("projid","prs")
+
+# Getting only the volunteers (projid) present on single nuclei data (n=424)
+donors_in_common = intersect(colnames(celltype_exp$ext),prs$projid)
+length(donors_in_common)
+
+# Spliting data into deciles
+PRS_quantiles = prs %>% 
+  filter(projid %in% donors_in_common) %>%
+  mutate(prs_quantile = as.factor(cut(prs,quantile(prs, probs = 0:10 / 10, na.rm = T),include.lowest = T, labels = F)))
+# table(PRS_quantiles$prs_quantile, useNA = "ifany")
+
+# Show PRS distribution in each of the ten quantile
+(p1 = ggplot(PRS_quantiles, aes(x = prs, fill = prs_quantile)) +
+    geom_histogram(alpha = 1, bins = 100) +
+    theme_classic() +
+    labs(x = "PRS", y = "Density") +
+    theme(
+        legend.position = "none",               
+        axis.text = element_text(size = 16),  
+        axis.title = element_text(size = 18),
+        plot.title = element_text(size = 18)
+    ))
+
+min_quantile = min(as.numeric(PRS_quantiles$prs_quantile), na.rm = T)
+max_quantile = max(as.numeric(PRS_quantiles$prs_quantile), na.rm = T)
+
+# Make a long table of expression of cytokines in each cell type and PRS group
+celltype_exp_prs_long = data.frame()
+for(cell_i in maj_celltypes){
+  celltype_exp_prs_long = bind_rows(celltype_exp_prs_long,
+                                    celltype_exp[[cell_i]] %>% rownames_to_column("ensembl") %>%
+                                      filter(ensembl %in% cytokines_list$ensembl) %>%
+                                      pivot_longer(cols = -ensembl, names_to = "projid", values_to = "expression") %>%
+                                      mutate(celltype = cell_i) %>%
+                                      left_join(PRS_quantiles, by = "projid") %>% na.omit())
+}
+celltype_exp_prs_long = celltype_exp_prs_long %>% left_join(cytokines_list, by = "ensembl")
+
+# Number of cytokines expressed in each cell type
+table(unique(celltype_exp_prs_long[,c("celltype","ensembl","family")])[,c("celltype")]) 
+
+# Number of families in each cell type
+addmargins(table(unique(celltype_exp_prs_long[,c("celltype","ensembl","family")])[,c("celltype","family")]))
+
+# Save to PDF
+pdf(paste0(work_dir,"/","PRS_deciles_distribution_T053",".pdf"), width = 10, height = 6)
+print(p1)
+dev.off()
+
+# Save to PNG
+png(paste0(work_dir,"/","PRS_deciles_distribution_T053",".png"), width = 10, height = 6, units = "in", res = 300)
+print(p1)
+dev.off()
+```
+
+## Top cytokines correlated with PRS
+
+Top 5 cytokines significantly associated with AD-PRS calculated from GWAS study published by Bellenguez et al. (2022). This article can be accessed [here](https://www.nature.com/articles/s41588-022-01024-z)
+
+```{r top5_cytokine_prs_association, warning=FALSE, message=FALSE, fig.width=20, fig.height=10} 
+# Correlate each cytokine with PRS overall
+cytokine_prs_correlation = celltype_exp_prs_long %>% 
+  group_by(celltype, ensembl) %>% 
+  summarise(correlation = cor(prs, expression, use = "pairwise.complete.obs", method = "pearson"), # getting r 
+            cor_pval = cor.test(prs, expression, use = "pairwise.complete.obs", method = "pearson")$p.value) %>%
+  arrange(cor_pval) %>% left_join(cytokines_list, by = "ensembl")
+cytokine_prs_correlation$fdr = p.adjust(cytokine_prs_correlation$cor_pval, method = "BH")
+# cytokine_prs_correlation %>% filter(cor_pval <= 0.05)
+
+# Correlate each cytokine with PRS overall adjusting by age and sex (linear regression)
+cytokine_prs_lm = celltype_exp_prs_long %>% 
+  left_join(pheno[,c("projid","age_death","msex")], by = "projid") %>%
+  group_by(celltype, ensembl) %>% 
+  do( as.data.frame(coef(summary(glm(expression ~ prs + age_death + msex, data=., na.action = "na.exclude"))))[2,] ) %>%
+  dplyr::rename(pval = `Pr(>|t|)`) %>%  arrange(pval) %>% left_join(cytokines_list, by = "ensembl")
+cytokine_prs_lm$fdr = p.adjust(cytokine_prs_lm$pval, method = "BH")
+# cytokine_prs_lm %>% filter(pval <= 0.05)
+
+cytokine_prs_lm = cytokine_prs_lm %>%
+  select(celltype, symbol, ensembl, Estimate, `Std. Error`, `t value`, pval, fdr, family)
+
+# Plot scatter plots for the top5 cytokines correlated with PRS
+top5_cytokines = cytokine_prs_lm %>% ungroup() %>% slice_min(order_by = pval, n = 5) %>%
+  mutate(cell_ensembl = paste(celltype, ensembl, sep = "_"))
+scales::scientific(0.005)
+(p2 = celltype_exp_prs_long %>%
+    mutate(cell_ensembl = paste(celltype, ensembl, sep = "_")) %>%
+    filter(cell_ensembl %in% top5_cytokines$cell_ensembl) %>%
+    left_join(cytokine_prs_lm %>% mutate(cell_ensembl = paste(celltype, ensembl, sep = "_"))) %>%
+    ggplot(aes(x = prs, y = expression, color = celltype)) +
+    geom_point(alpha = 0.3) + 
+    geom_smooth(method = "lm", se = T) + 
+    geom_text(aes(x = Inf, y = -Inf, 
+                  label = paste("nom.P =", format(pval, digits=1, nsmall=3))),
+              hjust = 1.1, vjust = -0.8, size=6.5) +
+    facet_wrap(~ celltype + symbol, scales = "free", nrow = 1) +
+    theme_classic() + 
+    scale_x_continuous(n.breaks = 5) +
+    ggeasy::easy_rotate_x_labels(angle = 25, side = c("right")) +
+    theme(legend.position = "none") +
+    labs(x = "PRS", y = "Expression") +
+    theme(
+        legend.position = "none",
+        strip.text = element_text(size = 14), # Font size from the facet_wrap title
+        axis.title = element_text(size = 20), # Font size from axis title
+        axis.text = element_text(size = 14)   # Font size from the text at the axis
+    ) +
+    scale_color_manual(values = c(
+        "ext" = "#00008B",
+        "inh" = "#CC3311",
+        "mic" = "#FF8C00",
+        "ast" = "#9932CC",
+        "oli" = "#698b22",
+        "opc" = "#008b45",
+        "end" = "#8a6407"
+    ))
+)
+
+# Save to PDF
+pdf(paste0(work_dir,"/","top5_correl_cytokines_PRS_T053",".pdf"), width = 20, height = 8)
+print(p2)
+dev.off()
+
+# Save to PNG
+png(paste0(work_dir,"/","top5_correl_cytokines_PRS_T053",".png"), width = 20, height = 8, units = "in", res = 300)
+print(p2)
+dev.off()
+
+# Formatando para garantir que o excel br não altere a notação científica dos valores
+prs_lm_excel <- cytokine_prs_lm %>%
+  mutate(across(where(is.numeric), ~ format(., scientific = TRUE, digits = 5)))
+
+# Save to xlsx
+file_path <- file.path(work_dir, "correl_cytokines_PRS_T053.xlsx")
+write.xlsx(prs_lm_excel, file_path, row.names = FALSE)
+```
+
+## GSEA analysis
+
+```{r gsea, warning=FALSE, message=FALSE, fig.width=32, fig.height=12}
+# GSEA for cytokine families
+my_list = list() # to storage t-values from linear regression analysis btw AD-PRS and cytokines expressed on cortex
+my_list[["All"]] = setNames(cytokine_prs_lm$`t value`,cytokine_prs_lm$ensembl) # ranked list with t value from linear regression analysis btw PRS and cytokine expression
+
+for (cell_i in maj_celltypes){
+  prs_lm_cell_i = cytokine_prs_lm %>% filter(celltype == cell_i)
+  my_list[[cell_i]] = setNames(prs_lm_cell_i$`t value`,prs_lm_cell_i$ensembl)
+}
+
+cytokines_list_filt = cytokines_list %>% filter(ensembl %in% unique(celltype_exp_prs_long$ensembl)) # df w/ unique cytokines expressed among all cell types
+cytokines_families = split(x = cytokines_list_filt$ensembl, f = cytokines_list_filt$family) # list of families containing ensembl id of each expressed cytokine in cell type
+# table(cytokines_list_filt$family)
+
+gsea_results = run_GSEA(my_list, pathways_list = cytokines_families, minSize = 1, eps = 0)
+res_gsea_xlsx <- gsea_results %>% 
+  select(GeneSet, everything())
+
+
+gsea_results$labels = ifelse(gsea_results$pval<=0.05, gsea_results$pathway, "")
+
+(p3 = ggplot(gsea_results, aes(x = GeneSet, y = -log10(pval), fill = NES, group = pathway)) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+    geom_bar(stat = "identity", position = position_dodge2(preserve = "single")) +
+    geom_text(aes(label = labels), 
+              position = position_dodge2(width =1, preserve = "single"), 
+              vjust = -0.30, size = 8.7) + 
+    scale_fill_distiller(palette = "Spectral") +
+    theme_classic() +
+    theme(
+        axis.title = element_text(size = 32), 
+        axis.text = element_text(size = 30),
+        legend.title = element_text(size = 26), 
+        legend.text = element_text(size = 24)  
+    ))
+
+# Save to PDF
+pdf(paste0(work_dir,"/","gsea_cytokines_families_T053",".pdf"), width = 16, height = 6)
+print(p3)
+dev.off()
+
+# Save to PNG
+png(paste0(work_dir,"/","gsea_cytokines_families_T053",".png"), width = 39, height = 8, units = "in", res = 300)
+print(p3)
+dev.off()
+
+# Formatando para garantir que o excel br não altere a notação científica dos valores
+res_gsea_xlsx <- res_gsea_xlsx %>%
+  mutate(across(where(is.numeric), ~ format(., scientific = TRUE, digits = 5)))
+
+# Save to xlsx
+file_path <- file.path(work_dir, "gsea_results_T053.xlsx")
+write.xlsx(res_gsea_xlsx, file_path, row.names = FALSE)
+```
+
+## Risk Group Comparison by PRS
+
+```{r prs_groups, warning=FALSE, message=FALSE, fig.width=18, fig.height=5}
+# Expression of cytokines in low vs high risk PRS groups
+expr_by_quantile = celltype_exp_prs_long %>% 
+  group_by(celltype, prs_quantile, ensembl) %>% 
+  summarise(mean_exp = mean(expression), sd_exp = sd(expression), n = n()) # getting the average expression in each gene by cell type and PRS quantile
+
+# Show expression differences by PRS extremes
+# each dot represents the gene average expression in the specific quantile
+# Define custom colors
+custom_colors <- c("low risk" = "#87CEFA", "high risk" = "#FF6347")
+
+(p4 <- expr_by_quantile %>%
+  filter(prs_quantile %in% c(min_quantile, max_quantile)) %>%
+  mutate(prs_quantile = factor(prs_quantile, 
+                               levels = c(min_quantile, max_quantile),
+                               labels = c("low risk", "high risk"))) %>%
+  ggplot(aes(x = prs_quantile, y = mean_exp, fill = prs_quantile)) +
+  geom_boxplot(position = position_dodge(width = 0.8), width = 0.6, outliers = FALSE) +
+  ggbeeswarm::geom_quasirandom() + 
+  geom_pwc(aes(group = prs_quantile), method = "t_test", label = "p.adj.format", hide.ns = TRUE) +
+  facet_wrap(~celltype, scales = "free", nrow = 1) + 
+  theme_classic() +
+  theme(
+    legend.title = element_blank(),  # Remove legend title
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.text = element_text(size = 12),  # Increase axis text size
+    axis.title.y = element_text(size = 14),  # Increase y-axis title size
+    strip.text = element_text(size = 14),  # Increase facet text size
+    legend.text = element_text(size = 14)  # Increase legend text size
+  ) +
+  labs(y = "Mean cytokine expression") +
+  scale_fill_manual(values = custom_colors)  # Add custom colors
+)
+# Save to PDF
+pdf(paste0(work_dir,"/","risk_groups_PRS_T053",".pdf"), width = 18, height = 5)
+print(p4)
+dev.off()
+
+# Save to PNG
+png(paste0(work_dir,"/","risk_groups_PRS_T053",".png"), width = 18, height = 5, units = "in", res = 300)
+print(p4)
+dev.off()
+```
+
+## Permutation test
+
+```{r permutation_prs, warning=FALSE, message=FALSE, fig.width=22, fig.height=4}
+# Function to calculate 1000 permutation on the cytokine data to get the null distribution of correlation
+calc_prs_expression_permutation <- function(expression_prs_df_long, nperm = 1000){
+  # expression_prs_df_long must contain columns: projid, prs, ensembl, expression
+  observed_correlation = expression_prs_df_long %>% 
+    group_by(ensembl) %>% 
+    summarise(correlation = cor(prs, expression, use = "pairwise.complete.obs", method = "pearson"))
+  avg_observed_correlation = mean(observed_correlation$correlation, na.rm = T)
+  
+  permuted_correlation = data.frame()
+  set.seed(123)
+  for(i in 1:nperm){
+    # print(paste0("Permutation ",i,"/",nperm))
+    # Randomly permute expression values
+    expression_prs_df_long_perm = expression_prs_df_long %>% 
+      mutate(expression = sample(expression))
+    
+    permuted_correlation = suppressWarnings(bind_rows(permuted_correlation,
+                                                      expression_prs_df_long_perm %>% 
+                                                        group_by(ensembl) %>% 
+                                                        summarise(correlation = cor(prs, expression, use = "pairwise.complete.obs", method = "spearman")) %>%
+                                                        mutate(permutation = as.character(i))))
+  }
+  avg_permuted_correlation = permuted_correlation %>% 
+    group_by(permutation) %>% 
+    summarise(avg_correlation = mean(correlation, na.rm = T))
+  
+  # Get a P-value for the observed correlation vs permuted correlations
+  obs_pval <- sum(abs(avg_permuted_correlation$avg_correlation)>=abs(avg_observed_correlation))/length(avg_permuted_correlation$avg_correlation)
+  return(list(observed_correlation = observed_correlation, 
+              avg_observed_correlation = avg_observed_correlation,
+              permuted_correlation = permuted_correlation, 
+              avg_permuted_correlation = avg_permuted_correlation,
+              obs_pval = obs_pval))
+}
+
+# Apply function for each major cell type
+maj_cells_cor_results = map(maj_celltypes, ~{ 
+  cell_i_df = celltype_exp_prs_long %>% filter(celltype == .x) %>% select(projid, prs, ensembl, expression)
+  return(calc_prs_expression_permutation(cell_i_df))
+})
+names(maj_cells_cor_results) = maj_celltypes
+
+# Get the average distributions and pvalues for each celltype
+maj_cell_avg_correlations = data.frame()
+maj_cell_permutation_pvalues = data.frame()
+for(cell_i in names(maj_cells_cor_results)){
+  cell_i_results = maj_cells_cor_results[[cell_i]]
+  # Combine observed and permuted avg. correlations
+  cell_i_avg_df = bind_rows(cell_i_results$avg_permuted_correlation,
+                            data.frame(permutation = "observed", avg_correlation = cell_i_results$avg_observed_correlation) )
+  cell_i_avg_df$celltype = cell_i
+  # Append to final dataframes
+  maj_cell_avg_correlations = bind_rows(maj_cell_avg_correlations,cell_i_avg_df)
+  maj_cell_permutation_pvalues = bind_rows(maj_cell_permutation_pvalues, 
+                                           data.frame(celltype = cell_i, pval = cell_i_results$obs_pval))
+}
+maj_cell_permutation_pvalues$perm_fdr = p.adjust(maj_cell_permutation_pvalues$pval, method = "fdr")
+
+# Plot mean permuted distributions vs observed correlation of PRS vs cytokine expression (facet by celltype)
+(p5 = maj_cell_avg_correlations %>% filter(permutation != "observed") %>%
+    ggplot(aes(avg_correlation)) +
+    geom_histogram() +
+    geom_vline(data = maj_cell_avg_correlations %>% filter(permutation == "observed"), 
+               aes(xintercept = avg_correlation), color = "red") +
+    geom_text(data = maj_cell_permutation_pvalues, 
+              aes(x = -Inf, y = Inf, 
+                  label = paste0("FDR = ",format(perm_fdr, digits=1, nsmall=3))), hjust = -0.1, vjust = 1.5, size = 5) +
+    facet_wrap(~celltype, scales = "free_y", nrow = 1) +
+    theme_classic()+
+    ggeasy::easy_rotate_x_labels(angle = 25, side = c("right")) + 
+    theme(
+      axis.title.y = element_text(size = 16),
+      axis.text = element_text(size = 14),  # Aumenta o tamanho do texto dos eixos
+      strip.text = element_text(size = 15),  # Aumenta o tamanho dos textos dos facetes
+      axis.title.x = element_text(size = 16)
+      ) +
+    labs(x = "Average correlation", y = "Distribution")
+)
+
+# Save to PDF
+pdf(paste0(work_dir,"/","permutation_PRS_T053",".pdf"), width = 23, height = 4)
+print(p5)
+dev.off()
+
+# Save to PNG
+png(paste0(work_dir,"/","permutation_PRS_T053",".png"), width = 23, height = 4, units = "in", res = 300)
+print(p5)
+dev.off()
+```
+
+
+## PRS-Cytokine Correlation by Cell Type
+
+```{r correl_prs_cytokines_cellTypes, warning=FALSE, message=FALSE, fig.width=8, fig.height=5}
+# Check if correlation of PRS with cytokines is different between cell types
+maj_cell_permutation_pvalues$signif_label <- stars.pval(maj_cell_permutation_pvalues$perm_fdr) # putting stars labels
+set.seed(123)
+
+(p6 <- cytokine_prs_correlation %>% 
+  left_join(maj_cell_permutation_pvalues, by = "celltype") %>%
+  ggplot(aes(x = celltype, y = correlation, fill = celltype)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_violin() +
+  geom_boxplot(width = 0.2, fill = "white") +
+  ggbeeswarm::geom_quasirandom() +
+  # geom_pwc(aes(group = celltype), method = "t_test", label = "p.adj.format", hide.ns = TRUE) + theme_classic()) +
+  geom_text(data = maj_cell_permutation_pvalues, 
+            aes(x = celltype, y = Inf, 
+                label = signif_label, vjust = 1), 
+            size = 16) + 
+  scale_fill_manual(values = c(
+    "ext" = "#00008B",
+    "inh" = "#8b1a1a",
+    "mic" = "#cd661d",
+    "ast" = "#68228b",
+    "oli" = "#698b22",
+    "opc" = "#008b45",
+    "end" = "#8a6407"
+  )) +
+  theme_classic() +
+  theme(
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12),
+    axis.title.y = element_text(size = 16),
+    axis.text = element_text(size = 14),
+    strip.text = element_text(size = 16),
+    axis.title.x = element_blank()
+  ) +
+  labs(y = "Correlation coefficient", fill = "cell type")
+)
+
+# Save to PDF
+pdf(paste0(work_dir,"/","PRS_correl_cellType_T053",".pdf"), width = 8, height = 5)
+print(p6)
+dev.off()
+
+# Save to PNG
+png(paste0(work_dir,"/","PRS_correl_cellType_T053",".png"), width = 8, height = 5, units = "in", res = 300)
+print(p6)
+dev.off()
+```
+
+```{r final_fig, warning=FALSE, message=FALSE}
+abc = ggarrange(p1,p4,p6, ncol = 3, nrow = 1, widths = c(0.6,2,1))
+de = ggarrange(p2,p3, ncol = 2, nrow = 1, widths = c(1,2))
+all_plots = ggarrange(abc,de,p5, ncol = 1, nrow = 3)
+
+png(paste0(work_dir,"/",prs_id,".png"), width = 20, height = 10, units = "in", res = 300)
+print(all_plots)
+dev.off()
+
+fwrite(cytokine_prs_lm, file = paste0(work_dir,"/cytokine_prs_lm_",prs_id,".csv"))
+```
+
+# Session info
+```{r session_info}
+sessionInfo()
+```
