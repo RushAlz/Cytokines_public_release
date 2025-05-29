@@ -1,0 +1,150 @@
+---
+title: "Boxplot - IL15 microglial expression by diagnosis"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> IL15 expression in microglia by diagnosis at the time of death: AD (Alzheimer's Disease), MCI (Mild cognitive impairment) and NCI (no cognitive impairment).
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rstatix)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(readr)
+library(tibble)
+library(ggeasy)
+library(ggpubr)
+library(ggsignif)
+library(readxl)
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r set_dir, warning=FALSE,message=FALSE, include=FALSE} 
+work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/fig4paper/T047"
+```
+
+```{r exprData_upload, warning=FALSE,message=FALSE, include=FALSE} 
+# single nuclei data
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/snRNA_pseudoBulk_7majCellTypes.rds"
+celltype_exp <- readRDS(file_path)
+```
+
+```{r phenoData_upload, warning=FALSE,message=FALSE, include=FALSE} 
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/pheno_SN.Rdata"
+load(file_path)
+dim(pheno_SN)
+```
+
+```{r cytokines_list_upload, warning=FALSE, message=FALSE, include=FALSE} 
+# upload list of cytokines
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T015/list_cytokines_T015.txt"
+cytokines <- read.delim(file_path, header = TRUE, check.names = FALSE, stringsAsFactors = FALSE)
+cytokines <- subset(cytokines, select = -family) # I removed the 'family' column here because it had NA values
+ensembls = cytokines$ensembl
+```
+
+# IL15 expression by diagnosis
+
+```{r mic_boxplot_IL15_by_dx, message=FALSE, warning=FALSE, fig.width=8, fig.height=10} 
+#celltype_exp$mic[1:5, 1:5]
+cell_i = "mic"
+
+dt_res = as.data.frame(celltype_exp[[cell_i]], check.names = F) 
+dt_res_selected = dt_res[rownames(dt_res) %in% ensembls, ]
+
+# long format for the plot
+dt_res_selected_l = dt_res_selected %>% 
+  rownames_to_column("ensembl") %>%
+  pivot_longer(-ensembl, values_to = "expression", names_to = "projid") %>%
+  mutate(celltype = cell_i)
+
+# join to get the gene_name
+dt_res_selected_l = dt_res_selected_l %>%
+  left_join(cytokines, by = "ensembl")
+
+# join to get the phenotype 
+dt_res_selected_l_meta = dt_res_selected_l %>% 
+  left_join(pheno_SN, by = "projid") %>%
+  filter(symbol == "IL15")
+
+# By diagnosis 
+dt_res_selected_l_meta$cogdx_3grp[dt_res_selected_l_meta$cogdx_3grp == 0] <- "NCI"
+dt_res_selected_l_meta$cogdx_3grp[dt_res_selected_l_meta$cogdx_3grp == 1] <- "MCI"
+dt_res_selected_l_meta$cogdx_3grp[dt_res_selected_l_meta$cogdx_3grp == 2] <- "AD"
+
+dt_res_selected_l_meta$cogdx_3grp = as.factor(dt_res_selected_l_meta$cogdx_3grp)
+names(dt_res_selected_l_meta)[names(dt_res_selected_l_meta) == 'cogdx_3grp'] <- 'Diagnosis'
+
+my_comparisons = list(c("AD", "NCI"),
+                      c("AD", "MCI"),
+                      c("MCI", "NCI"))
+
+p <- ggplot(na.omit(dt_res_selected_l_meta[, c("Diagnosis", "expression", "symbol")]), aes(x = Diagnosis, y = expression, fill = Diagnosis)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_jitter(position = position_jitter(width = 0.2), size = 1, alpha = 0.7) + 
+  stat_compare_means(comparisons = my_comparisons, method = "t.test", size = 7, bracket.size = 0.65) +
+  facet_wrap(~ symbol, scales = "free") + 
+  scale_fill_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  labs(y = "IL15 expression in microglia", x = "Final consensus diagnosis") + 
+  theme_classic()+
+  theme(
+    text = element_text(size = 22),
+    axis.title = element_text(size = 22),
+    axis.text = element_text(size = 18),
+    legend.position = "none"
+  )
+
+print(p)
+  
+# Save to PDF
+pdf(file = paste0("boxplot_IL15_mic_T047", ".pdf"), width = 8, height = 8)
+print(p)
+dev.off()
+
+# Save to PNG
+png(file = paste0("boxplot_IL15_mic_T047", ".png"), width = 2000, height = 2800, res = 300)
+print(p)
+dev.off()
+```
+
+# Session info
+```{r}
+sessionInfo()
+```

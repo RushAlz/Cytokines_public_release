@@ -1,0 +1,296 @@
+---
+title: "Significant associations - Cytokines and phenotypic data - Bulk RNAseq"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> 1,210 unique samples | 
+> Dorsolateral prefrontal cortex (DLFPC) | 
+> ROSMAP cohort 
+
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo=FALSE, results='hide', warning=FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rstatix)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(readr)
+library(tibble)
+library(ggeasy)
+library(ggpubr)
+library(ggsignif)
+#BiocManager::install("ComplexHeatmap")
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+library(openxlsx)
+```
+
+```{r set_dir, echo=FALSE, results='hide', warning=FALSE} 
+work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq"
+gene_list_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines"
+```
+
+```{r source_reg_function, echo=FALSE, results='hide', warning=FALSE} 
+source("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/run_regressions_v2_adjcov.R") # Our script for regressions: linear and logistic 
+```
+
+# Regression
+
+```{r exprData_upload, warning=FALSE} 
+data_bulk <- load ("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/bulk_DLPFC_2022.Rdata")
+num_genes_bulk <- nrow(exprData_DLPFC)
+num_samples_bulk <- ncol(exprData_DLPFC)
+message(paste0("Number of genes in bulk RNA-seq dataset: ", num_genes_bulk))
+message(paste0("Number of samples in bulk RNA-seq dataset: ", num_samples_bulk))
+```
+
+```{r gene_list, warning=FALSE,message=FALSE}
+# upload list of cytokines
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T015/list_cytokines_T015.txt"
+cytokines <- read.delim(file_path, header = TRUE, check.names = FALSE, stringsAsFactors = FALSE)
+cytokines <- subset(cytokines, select = -family) # I removed the 'family' column here because it had NA values
+ensembls = cytokines$ensembl
+```
+
+```{r gene_expression, warning=FALSE,message=FALSE, include=FALSE}
+# Filtering gene expression
+exprData_DLPFC$ensembl = gsub("(.*)\\.(.*)","\\1", rownames(exprData_DLPFC))
+exprData_DLPFC_filt = exprData_DLPFC[exprData_DLPFC$ensembl %in% cytokines$ensembl,]
+exprData_cytokines = merge(exprData_DLPFC_filt, cytokines, by = "ensembl")
+rownames(exprData_cytokines) = exprData_cytokines$symbol
+exprData_cytokines$ensembl = NULL
+exprData_cytokines$symbol = NULL
+```
+
+```{r pheno_list, warning=FALSE, message=FALSE, include=FALSE}
+pheno_list = c(# "cogn_global_lv"="gaussian", # Global cognitive function - Average of 19 tests
+               "cogng_demog_slope"="gaussian", # Cognitive decline slope. Remove the effect of demog 
+               "cogng_path_slope"="gaussian", # Resilience, removed the effect of path + demog
+               "tangles_sqrt"="gaussian", # Tangle density - Mean of 8 brain regions
+               # "nft_sqrt"="gaussian", # Neurofibrillary tangle summary based on 5 regions
+               "amyloid_sqrt"="gaussian", # Overall amyloid level - Mean of 8 brain regions
+               # "plaq_n_sqrt"="gaussian", # Neuritic plaque summary based on 5 regions
+               # "plaq_d_sqrt"="gaussian", # Diffuse plaque summary based on 5 regions
+               # "caa_4gp"="gaussian", # Cerebral amyloid angiopathy - 4 stages
+               "gpath"="gaussian", # Global burden of AD pathology based on 5 regions
+               #"tdp_cs_6reg"="gaussian", # TDP-43, 6 region severity summary
+               # "parksc_lv"="gaussian", # Global parkinsonian summary score
+               # "cpd_lv"="binomial", # Clinical Parkinson's Disease 
+               # "dxpark_status"="binomial", # Final Clinical Dx - Hx of Parkinson's disease/Parkinsonism (excl 9)
+               "ad_dementia_status"="binomial", # Clinical AD # CT = MCI + NCI 
+               "ci_status"="binomial" # AD+ MCI vs NCI 
+               # "tdp_43_binary"="binomial",
+               # "ci_num2_gct"="binomial", # Cerebral Infarctions - Binary - Gross-Chronic-Any Location
+               # "ci_num2_mct"="binomial", # Cerebral Infarctions - Binary - Micro-Chronic-Any Location
+               # "arteriol_scler"="gaussian", # Arteriolosclerosis - 4 stages
+               # "cvda_4gp2"="gaussian", # Cerebral Atherosclerosis Rating - 4 levels (None - severe)
+               # "vasc_3dis_sum_lv"="gaussian", # Cumulative vascular disease burden - Average of 3 items (ROS/MAP/MARS)
+               # "vasc_risks_sum_lv"="gaussian", # Cumulative vascular disease risk factors - Average of 3 items
+               # "CR_slope_lpm"="gaussian",
+               # "CR_slope_lmm"="gaussian",
+               # "CR_mean_level_lpm"="gaussian",
+               # "CR_mean_level_lmm"="gaussian",
+               # "age_death"="gaussian",
+               # "msex"="binomial"
+               )
+```
+
+```{r expr_pheno, warning=FALSE, message=FALSE, include=FALSE}
+data4linear_reg <- as.data.frame(t(exprData_cytokines))
+
+phenotype_dt <- pheno_DLPFC[match(rownames(data4linear_reg), pheno_DLPFC$projid), ]
+dim(phenotype_dt)
+all(rownames(data4linear_reg) == phenotype_dt$projid) # Must be TRUE. Check the IDs
+
+res_test = run_module_trait_association(data4linear_reg, phenotype_dt, pheno_list, covariates = c("age_death","msex", "educ"))
+```
+
+## Significant results 
+Threshold: At least one module with adjusted pvalue < 0.05. 
+
+```{r heatmap, fig.height=3.5, fig.width=8.5, warning=FALSE}
+# Heatmap 
+to_show = colnames(res_test$matrix_pvalue)
+transpose = T
+show_only_significant = T; signif_cutoff = c("***","**","*")
+
+matrix_rsquared = res_test$matrix_rsquared
+matrix_pvalue = res_test$matrix_pvalue # final matrix with the pvalues 
+
+# Reorder heatmap row names to paper 
+row_newOrder <- c("gpath","tangles_sqrt","amyloid_sqrt","ad_dementia_status","ci_status","cogng_demog_slope","cogng_path_slope")
+matrix_rsquared = matrix_rsquared[row_newOrder, ]
+matrix_pvalue = matrix_pvalue[row_newOrder, ]
+
+matrix_rsquared_to_plot = matrix_rsquared[,to_show]
+matrix_pvalue_to_plot = matrix_pvalue[,to_show]
+
+# Adjust P-values by each phenotype separately.
+adj_matrix_pvalue_to_plot = matrix_pvalue_to_plot
+for(i in 1:ncol(matrix_pvalue_to_plot)){
+  adj_matrix_pvalue_to_plot[,i] = p.adjust(matrix_pvalue_to_plot[,i], method = "bonferroni")
+}
+adj_matrix_pvalue_to_plot.signif <- symnum(x = as.matrix(adj_matrix_pvalue_to_plot), corr = FALSE, na = FALSE,
+                                           cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), 
+                                           symbols = c("***", "**", "*", ".", " "))
+
+log_matrix_pvalue_to_plot = -log10(matrix_pvalue_to_plot)
+dimnames(log_matrix_pvalue_to_plot) = dimnames(log_matrix_pvalue_to_plot)
+
+if(show_only_significant){
+  if(is.numeric(signif_cutoff)){
+    to_keep = colSums(adj_matrix_pvalue_to_plot <= signif_cutoff) > 0
+  }else{
+    to_keep = rep(F,ncol(adj_matrix_pvalue_to_plot.signif))
+    for(cut_i in signif_cutoff){
+      to_keep = to_keep | colSums(adj_matrix_pvalue_to_plot.signif == cut_i) > 0 # change for the significance you want 
+    }
+  }
+  log_matrix_pvalue_to_plot = log_matrix_pvalue_to_plot[,to_keep]
+  adj_matrix_pvalue_to_plot.signif = adj_matrix_pvalue_to_plot.signif[,to_keep]
+}
+
+matrix_pvalue_to_plot_labels = formatC(log_matrix_pvalue_to_plot, format = "f", digits = 2)
+log_matrix_pvalue_to_plot_t = t(log_matrix_pvalue_to_plot)
+
+if(transpose){
+  log_matrix_pvalue_to_plot_t = t(log_matrix_pvalue_to_plot_t)
+  matrix_pvalue_to_plot_labels = t(matrix_pvalue_to_plot_labels)
+  adj_matrix_pvalue_to_plot.signif = t(adj_matrix_pvalue_to_plot.signif)
+}
+
+# Colored by -log10(pvalue)
+# Numbers inside cell = -log10(pvalue): nominal
+
+# New column names
+new_column_names <- c(
+  "gpath" = "Global AD burden",
+  "tangles_sqrt" = "PHFtau tangle density",
+  "amyloid_sqrt" = "Amyloid-β load",
+  "ad_dementia_status" = "AD diagnosis",
+  "ci_status" = "Mild cognitive impairment",
+  "cogng_demog_slope" = "Cognitive decline",
+  "cogng_path_slope" = "Resilience"
+)
+
+rownames(log_matrix_pvalue_to_plot_t) <- new_column_names[rownames(log_matrix_pvalue_to_plot_t)]
+
+# Group colors
+group_colors <- c("Pathology" = "#800074", "Cognition" = "#298c8c")
+
+# Y lab annotation
+group_ylab <- factor(
+  c("Pathology","Pathology","Pathology","Cognition","Cognition","Cognition","Cognition"),
+  levels = c("Pathology", "Cognition")
+)
+
+# Lateral annotation
+row_anno <- rowAnnotation(
+  Group = group_ylab,
+  col = list(Group = group_colors),
+  show_annotation_name = TRUE,
+  annotation_name_side = "top",
+  annotation_name_gp = gpar(fontsize = 9),
+  width = unit(1, "mm")
+)
+
+
+heatmap_plot <- Heatmap(
+  log_matrix_pvalue_to_plot_t,
+  name = "-log10(P-value)",
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if(as.character(t(adj_matrix_pvalue_to_plot.signif)[i,j]) == " "){
+      grid.text(t(matrix_pvalue_to_plot_labels)[i,j], x, y, gp = gpar(fontsize = 8))
+    } else {
+      grid.text(paste0(t(matrix_pvalue_to_plot_labels)[i,j], "\n", t(adj_matrix_pvalue_to_plot.signif)[i,j]), x, y, gp = gpar(fontsize = 8))
+    }
+  },
+  col = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(100),
+  row_names_side = "right", show_row_names = TRUE,
+  cluster_rows = FALSE, cluster_columns = FALSE,
+  column_names_gp = gpar(fontsize = 9, fontface = "italic"),
+  row_names_gp = gpar(fontsize = 9),
+  border = TRUE,
+  show_row_dend = FALSE, show_column_dend = FALSE,
+  rect_gp = gpar(col = "white", lwd = 1),
+  column_names_rot = 40,
+  column_title = "Bulk RNAseq data"
+)
+
+# Heatmap + lateral annotation
+final_heatmap <- row_anno + heatmap_plot
+draw(final_heatmap)
+
+# Saving as PDF
+pdf(file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/T042/reg_cytokines_bulk_T042.pdf", width = 8.5, height = 3.5)
+print(final_heatmap)
+dev.off()
+
+# Saving as PNG
+png(file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/T042/reg_cytokines_bulk_T042.png", width = 2500, height = 830, res = 300)
+print(final_heatmap)
+dev.off()
+
+supplementary_table_p_values <- t(matrix_pvalue_to_plot)
+
+# Saving xlsx
+write.xlsx(supplementary_table_p_values, file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/T042/p_values_correl_signif_bulk_T042.xlsx", row.names = TRUE)
+```
+
+## Top results
+
+Top result by covariate. 
+
+```{r best_results}
+# res_test$all_stats_df 
+createDT(res_test$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+## Nominal pvalue
+
+```{r pvalue}
+createDT(res_test$matrix_pvalue)
+```
+
+# Session info
+```{r session info}
+sessionInfo()
+```

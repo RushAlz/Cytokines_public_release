@@ -1,0 +1,218 @@
+---
+title: "Scatter plots - IL15 microglial expression and AD pathology phenotype"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> Scatter plots of IL15 expression in microglia and their correlation with PHFtau tangles, amyloid-β load, and global AD burden |
+> 424 unique samples from DLFPC region
+
+```{r, clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(tidyverse)
+library(ggpubr)
+library(ggeasy)
+library(ggplot2)
+```
+
+```{r set_dir, warning=FALSE, message=FALSE, include=FALSE} 
+work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/fig4paper/T044"
+```
+
+```{r exprData_upload, warning=FALSE, message=FALSE, include=FALSE} 
+file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/snRNA_pseudoBulk_7majCellTypes.rds")
+celltype_exp <- readRDS(file_path)
+```
+
+```{r phenoData_upload, warning=FALSE, message=FALSE, include=FALSE} 
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/pheno_SN.Rdata"
+load(file_path)
+phenotype_dt <- pheno_SN
+```
+
+```{r cytokines_list_upload, warning=FALSE, message=FALSE, include=FALSE} 
+# upload list of cytokines
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T015/list_cytokines_T015.txt"
+cytokines <- read.delim(file_path, header = TRUE, check.names = FALSE, stringsAsFactors = FALSE)
+cytokines <- subset(cytokines, select = -family) # I removed the 'family' column here because it had NA values
+ensembls = cytokines$ensembl
+```
+
+# Microglia
+
+```{r filtering_data_mic, warning=FALSE, message=FALSE} 
+
+exprData_mic <- celltype_exp$mic 
+  
+# Filter the gene expression in microglia
+exprData_filt_mic = exprData_mic[rownames(exprData_mic) %in% cytokines$ensembl, ]
+exprData_filt_mic$ensembl = rownames(exprData_filt_mic)
+exprData_cytokines_mic = merge(exprData_filt_mic, cytokines, by = "ensembl")
+rownames(exprData_cytokines_mic) = exprData_cytokines_mic$symbol
+exprData_cytokines_mic$ensembl = NULL
+exprData_cytokines_mic$symbol = NULL
+```
+
+```{r filtering_data_IL15, warning=FALSE, message=FALSE} 
+#scatter plot IL15
+# 1º: tangle density
+# 2º: amyloid density
+# 3º: global ad burden
+
+exprData_IL15_pheno <- as.data.frame(t(exprData_cytokines_mic["IL15", ]))
+exprData_IL15_pheno$projid <- rownames(exprData_IL15_pheno)
+exprData_IL15_pheno <- merge(exprData_IL15_pheno, 
+                             pheno_SN[, c("projid", "tangles_sqrt", "amyloid_sqrt", "gpath", "cogdx_3grp")], 
+                             by = "projid", 
+                             all.x = TRUE)
+
+exprData_IL15_pheno$cogdx_3grp[exprData_IL15_pheno$cogdx_3grp == 0] <- "NCI"
+exprData_IL15_pheno$cogdx_3grp[exprData_IL15_pheno$cogdx_3grp == 1] <- "MCI"
+exprData_IL15_pheno$cogdx_3grp[exprData_IL15_pheno$cogdx_3grp == 2] <- "AD"
+
+exprData_IL15_pheno$cogdx_3grp <- as.factor(exprData_IL15_pheno$cogdx_3grp)
+names(exprData_IL15_pheno)[names(exprData_IL15_pheno) == 'cogdx_3grp'] <- 'Diagnosis'
+```
+
+## Tangles density
+
+```{r IL15_tangles, warning=FALSE, message=FALSE, fig.width=10, fig.height=8} 
+#scatter plot IL15
+# 1º: tangle density
+gg <- ggplot(na.omit(exprData_IL15_pheno), aes(x=tangles_sqrt, y=IL15, color=Diagnosis, pch=Diagnosis)) + 
+  geom_point() +
+  stat_smooth(method = "lm", se=F) + # Add regression line
+  stat_cor(method = "spearman", label.x.npc = "left", label.y.npc = "bottom") +
+  labs(x = "PHF tau tangles on brain parenchyma", y = "IL15 expression", title = "IL15 expression on microglia for PHF tau tangles") +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  theme_classic()+
+  theme(
+    text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 18), 
+    legend.title = element_text(size = 18),
+    legend.text = element_text(size = 16) 
+  )
+
+print(gg)
+  
+# Save to PDF
+pdf(file = paste0("scatterPlot_IL15_tangles_mic_T044", ".pdf"), width = 10, height = 6)
+print(gg)
+dev.off()
+
+# Save to PNG
+png(file = paste0("scatterPlot_IL15_tangles_mic_T044", ".png"), width = 3000, height = 1800, res = 300)
+print(gg)
+dev.off()
+```
+
+## Amyloid accumulation
+
+```{r IL15_amyloid, warning=FALSE, message=FALSE, fig.width=10, fig.height=8} 
+#scatter plot IL15
+# 2º: amyloid density
+gg <- ggplot(na.omit(exprData_IL15_pheno), aes(x=amyloid_sqrt, y=IL15, color=Diagnosis, pch=Diagnosis), ) + 
+    geom_point()+
+  stat_smooth(method = "lm", se=F) + # Add regression line
+  # stat_regline_equation(aes(label = ..adj.rr.label..), show.legend = T) + # Add Rsquare 
+  stat_cor(method = "spearman", label.x.npc = "left", label.y.npc = "bottom") +
+  easy_labs(x = "Amyloid-β load on brain parenchyma", y = "IL15 expression", title = "IL15 expression on microglia for amyloid-β load") +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  theme_classic()+
+  theme(
+    text = element_text(size = 18), 
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 18),
+    legend.title = element_text(size = 18),
+    legend.text = element_text(size = 16) 
+  )
+
+print(gg)
+  
+# Save to PDF
+pdf(file = paste0("scatterPlot_IL15_amyloid_mic_T044", ".pdf"), width = 10, height = 6)
+print(gg)
+dev.off()
+
+# Save to PNG
+png(file = paste0("scatterPlot_IL15_amyloid_mic_T044", ".png"), width = 3000, height = 1800, res = 300)
+print(gg)
+dev.off()
+```
+
+## Global AD burden
+
+```{r IL15_gpath, warning=FALSE, message=FALSE, fig.width=10, fig.height=8} 
+#scatter plot IL15
+# 3º: global ad burden
+gg <- ggplot(na.omit(exprData_IL15_pheno), aes(x=gpath, y=IL15, color=Diagnosis, pch=Diagnosis)) + 
+    geom_point()+
+  stat_smooth(method = "lm", se=F) + # Add regression line
+  # stat_regline_equation(aes(label = ..adj.rr.label..), show.legend = T) + # Add Rsquare 
+  stat_cor(method = "spearman", label.x.npc = "centre", label.y.npc = "bottom", size = 6.5) +
+  easy_labs(x = "Global AD burden", y = "IL15 expression", title = "IL15 expression on microglia for global AD burden") +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  theme_classic()+
+  theme(
+    text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 18),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 14),
+    legend.position = c(0.94, 0.145),
+    legend.background = element_rect(fill = "white", color = "black"),
+    legend.box.background = element_rect(fill = "lightgray")  
+  )
+
+print(gg)
+  
+# Save to PDF
+pdf(file = paste0("scatterPlot_IL15_gpath_mic_T044", ".pdf"), width = 10, height = 6)
+print(gg)
+dev.off()
+
+# Save to PNG
+png(file = paste0("scatterPlot_IL15_gpath_mic_T044", ".png"), width = 3000, height = 1800, res = 300)
+print(gg)
+dev.off()
+```
+
+# Session info
+```{r}
+sessionInfo()
+```

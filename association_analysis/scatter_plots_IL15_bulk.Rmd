@@ -1,0 +1,238 @@
+---
+title: "Scatter plots - Bulk RNAseq - IL15 expression and AD phenotype data"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> Scatter plots of IL15 expression in bulk RNAseq data and their correlation with AD trais |
+> 1,210 unique samples from DLFPC region
+
+```{r, clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(tidyverse)
+library(ggpubr)
+library(ggeasy)
+library(ggplot2)
+```
+
+```{r set_dir, warning=FALSE, message=FALSE, include=FALSE} 
+work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/fig4paper/T045"
+```
+
+```{r exprData, warning=FALSE} 
+data_bulk <- load ("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/bulk_DLPFC_2022.Rdata")
+phenotype_dt <- pheno_DLPFC
+```
+
+```{r cytokines_list_upload, warning=FALSE, message=FALSE, include=FALSE} 
+# upload list of cytokines
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T015/list_cytokines_T015.txt"
+cytokines <- read.delim(file_path, header = TRUE, check.names = FALSE, stringsAsFactors = FALSE)
+cytokines <- subset(cytokines, select = -family) # I removed the 'family' column here because it had NA values
+ensembls = cytokines$ensembl
+```
+
+# Bulk
+
+```{r gene_expression, warning=FALSE,message=FALSE, include=FALSE}
+# Filter the gene expression
+exprData_DLPFC$ensembl = gsub("(.*)\\.(.*)","\\1", rownames(exprData_DLPFC))
+exprData_DLPFC_filt = exprData_DLPFC[exprData_DLPFC$ensembl %in% cytokines$ensembl,]
+expr_target = merge(exprData_DLPFC_filt, cytokines, by = "ensembl")
+rownames(expr_target) = expr_target$symbol
+expr_target$ensembl = NULL
+expr_target$symbol = NULL
+```
+
+```{r filtering_data_IL15, warning=FALSE, message=FALSE} 
+# Filtering dataset to IL15 expression
+exprData_IL15_pheno <- as.data.frame(t(expr_target["IL15", ]))
+exprData_IL15_pheno$projid <- rownames(exprData_IL15_pheno)
+exprData_IL15_pheno <- merge(exprData_IL15_pheno, 
+                             pheno_DLPFC[, c("projid", "cogng_demog_slope", "cogng_path_slope", "tangles_sqrt", "gpath", "cogdx_3grp")], 
+                             by = "projid", 
+                             all.x = TRUE)
+
+exprData_IL15_pheno$cogdx_3grp[exprData_IL15_pheno$cogdx_3grp == 0] <- "NCI"
+exprData_IL15_pheno$cogdx_3grp[exprData_IL15_pheno$cogdx_3grp == 1] <- "MCI"
+exprData_IL15_pheno$cogdx_3grp[exprData_IL15_pheno$cogdx_3grp == 2] <- "AD"
+
+exprData_IL15_pheno$cogdx_3grp <- as.factor(exprData_IL15_pheno$cogdx_3grp)
+names(exprData_IL15_pheno)[names(exprData_IL15_pheno) == 'cogdx_3grp'] <- 'Diagnosis'
+
+```
+
+## Cognitive decline
+
+```{r IL15_cogng, warning=FALSE, message=FALSE, fig.width=10, fig.height=8} 
+# scatter plot IL15
+# 1º: cognitive decline
+gg <- ggplot(na.omit(exprData_IL15_pheno), aes(x=cogng_demog_slope, y=IL15, color=Diagnosis, pch=Diagnosis)) + 
+  geom_point() +
+  stat_smooth(method = "lm", se=F) + # Add regression line
+  stat_cor(method = "spearman", label.x.npc = "left", label.y.npc = "bottom", size = 6) + 
+  labs(x = "Cognitive decline slope", y = "IL15 expression", title = "IL15 expression on bulk for cognitive decline", color = "Diagnosis", pch = "Diagnosis") +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  theme_classic()+
+  theme(
+    text = element_text(size = 18), 
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 18),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 14),
+    legend.position = c(0.94, 0.145), 
+    legend.background = element_rect(fill = "white", color = "black"),
+    legend.box.background = element_rect(fill = "lightgray")
+  )
+
+print(gg)
+  
+# Save to PDF
+pdf(file = paste0("scatterPlot_IL15_cogn_T045", ".pdf"), width = 10, height = 6)
+print(gg)
+dev.off()
+
+# Save to PNG
+png(file = paste0("scatterPlot_IL15_cogn_T045", ".png"), width = 3000, height = 1800, res = 300)
+print(gg)
+dev.off()
+```
+
+## Resilience
+
+```{r IL15_resilience, warning=FALSE, message=FALSE, fig.width=10, fig.height=8} 
+# scatter plot IL15
+# 2º: resilience
+gg <- ggplot(na.omit(exprData_IL15_pheno), aes(x=cogng_path_slope, y=IL15, color=Diagnosis, pch=Diagnosis)) + 
+  geom_point() +
+  stat_smooth(method = "lm", se=F) + # Add regression line
+  stat_cor(method = "spearman", label.x.npc = "left", label.y.npc = "bottom") + 
+  labs(x = "Resilience", y = "IL15 expression", title = "IL15 expression on bulk for resilience") +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  theme_classic()+
+  theme(
+    text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 18), 
+    legend.title = element_text(size = 18),
+    legend.text = element_text(size = 16)
+  )
+
+print(gg)
+  
+# Save to PDF
+pdf(file = paste0("scatterPlot_IL15_resilience_T045", ".pdf"), width = 10, height = 6)
+print(gg)
+dev.off()
+
+# Save to PNG
+png(file = paste0("scatterPlot_IL15_resilience_T045", ".png"), width = 3000, height = 1800, res = 300)
+print(gg)
+dev.off()
+```
+
+## PHF tau tangles
+
+```{r IL15_tangles, warning=FALSE, message=FALSE, fig.width=10, fig.height=8} 
+# scatter plot IL15
+# 3º: PHF tau tangles
+gg <- ggplot(na.omit(exprData_IL15_pheno), aes(x=tangles_sqrt, y=IL15, color=Diagnosis,  pch=Diagnosis)) + 
+  geom_point() +
+  stat_smooth(method = "lm", se=F) + # Add regression line
+  stat_cor(method = "spearman", label.x.npc = "left", label.y.npc = "bottom") + 
+  labs(x = "PHF tau tangles on brain parenchyma", y = "IL15 expression", title = "IL15 expression on bulk for PHF tau tangles") +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  theme_classic()+
+  theme(
+    text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 18),
+    legend.title = element_text(size = 18),
+    legend.text = element_text(size = 16) 
+  )
+
+print(gg)
+  
+# Save to PDF
+pdf(file = paste0("scatterPlot_IL15_tangles_T045", ".pdf"), width = 10, height = 6)
+print(gg)
+dev.off()
+
+# Save to PNG
+png(file = paste0("scatterPlot_IL15_tangles_T045", ".png"), width = 3000, height = 1800, res = 300)
+print(gg)
+dev.off()
+```
+
+## Global AD burden
+
+```{r IL15_gpath, warning=FALSE, message=FALSE, fig.width=10, fig.height=8} 
+# scatter plot IL15
+# 4º: global ad burden
+gg <- ggplot(na.omit(exprData_IL15_pheno), aes(x=gpath, y=IL15, color=Diagnosis, pch=Diagnosis)) + 
+    geom_point()+
+  stat_smooth(method = "lm", se=F) + # Add regression line
+  # stat_regline_equation(aes(label = ..adj.rr.label..), show.legend = T) + # Add Rsquare 
+  stat_cor(method = "spearman", label.x.npc = "left", label.y.npc = "bottom") +
+  easy_labs(x = "Global AD burden", y = "IL15 expression", title = "IL15 expression on bulk for global AD burden") +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  theme_classic()+
+  theme(
+    text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 18), 
+    legend.title = element_text(size = 18),
+    legend.text = element_text(size = 16) 
+  )
+
+print(gg)
+  
+# Save to PDF
+pdf(file = paste0("scatterPlot_IL15_gpath_T045", ".pdf"), width = 10, height = 6)
+print(gg)
+dev.off()
+
+# Save to PNG
+png(file = paste0("scatterPlot_IL15_gpath_T045", ".png"), width = 3000, height = 1800, res = 300)
+print(gg)
+dev.off()
+```
+
+# Session info
+```{r}
+sessionInfo()
+```

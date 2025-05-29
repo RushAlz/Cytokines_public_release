@@ -1,0 +1,138 @@
+---
+title: "Boxplot IL15 expression in bulk RNAseq dataset by diagnosis"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> IL15 expression in the bulk data by diagnosis at the time of death: AD (Alzheimer's Disease), MCI (Mild cognitive impairment) and NCI (no cognitive impairment).
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rstatix)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(readr)
+library(tibble)
+library(ggeasy)
+library(ggpubr)
+library(ggsignif)
+library(readxl)
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r dataset_upload, warning=FALSE, message=FALSE, include=FALSE}   
+data_bulk <- load ("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/bulk_DLPFC_2022.Rdata")
+```
+
+```{r gene_list, warning=FALSE, message=FALSE}
+# upload gene list
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T023/list_cytokines_T023.xlsx"
+cytokines_list <- read_excel(file_path)
+cytokines <- cytokines_list$symbol
+```
+
+```{r ensembl_id_extraction, warning=FALSE, message=FALSE}
+ensembl_id_to_name <- read.table(file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/ensembl2symbol.txt", check.names = F, stringsAsFactors = F, header = T)
+
+exprData_DLPFC0<- tibble::rownames_to_column(exprData_DLPFC, "ensgene") # In this dataframe, the row names were transformed into columns, and I used the name of this new column as the same as the 'ensembl2text' file
+
+exprData_DLPFC_gene <- merge(exprData_DLPFC0, ensembl_id_to_name, by = "ensgene", all = TRUE) # Join the two files using the 'ensgene' column as the key.
+
+exprData_DLPFC_gene <- relocate (exprData_DLPFC_gene, symbol, .before = ensgene) # The 'symbol' column is now at the beginning of the dataframe
+```
+
+# IL15 expression by diagnosis
+
+```{r filtering_data, warning=FALSE, message=FALSE}
+# Filter out the rows of interest (genes of interest)
+selected_genes <- exprData_DLPFC_gene[exprData_DLPFC_gene$symbol == "IL15", ]
+
+# Melt the selected data to prepare it for the boxplot
+melted_data <- reshape2::melt(selected_genes, id.vars = c("symbol", "ensgene"))
+
+# Merge with phenotype data using the 'projid' column
+merged_data <- merge(melted_data, pheno_DLPFC, by.x = "variable", by.y = "projid")
+
+merged_data$cogdx_3grp[merged_data$cogdx_3grp == 0] <- "NCI"
+merged_data$cogdx_3grp[merged_data$cogdx_3grp == 1] <- "MCI"
+merged_data$cogdx_3grp[merged_data$cogdx_3grp == 2] <- "AD"
+
+merged_data$cogdx_3grp <- as.factor(merged_data$cogdx_3grp)
+names(merged_data)[names(merged_data) == 'cogdx_3grp'] <- 'Diagnosis'
+```
+
+
+```{r boxplot_IL15_by_dx, fig.width=8, fig.height=10}
+my_comparisons = list(c("AD", "NCI"),
+                      c("AD", "MCI"),
+                      c("MCI", "NCI"))
+# add points
+# https://r-graph-gallery.com/96-boxplot-with-jitter.html
+p <- ggplot(na.omit(merged_data[, c("Diagnosis", "value", "symbol")]), aes(x = Diagnosis, y = value, fill = Diagnosis)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_jitter(position = position_jitter(width = 0.2), size = 1, alpha = 0.7) + 
+  stat_compare_means(comparisons = my_comparisons, method = "t.test", size = 7, bracket.size = 0.65) +
+  facet_wrap(~ symbol, scales = "free") + 
+  scale_fill_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  labs(y = "IL15 expression in bulk", x = "Final consensus diagnosis") + 
+  theme_classic()+
+  theme(
+    text = element_text(size = 22), 
+    axis.title = element_text(size = 22),
+    axis.text = element_text(size = 18),
+    legend.position = "none"
+  )
+
+print(p)
+  
+# Save to PDF
+pdf(file = paste0("boxplot_IL15_bulk_T046", ".pdf"), width = 8, height = 8)
+print(p)
+dev.off()
+
+# Save to PNG
+png(file = paste0("boxplot_IL15_bulk_T046", ".png"), width = 2000, height = 3000, res = 300)
+print(p)
+dev.off()
+```
+
+# Session info
+```{r}
+sessionInfo()
+```
