@@ -295,6 +295,21 @@ png(file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RN
 draw(final_heatmap)
 dev.off()
 ```
+
+### Top results
+Top result by covariate. 
+
+```{r best_results}
+# res_test$all_stats_df 
+createDT(res_test$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+### Nominal pvalue
+
+```{r pvalue}
+createDT(res_test$matrix_pvalue)
+```
+
 # Session info
 ```{r session info}
 sessionInfo()
