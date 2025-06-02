@@ -89,62 +89,6 @@ createDT <- function(DF, caption="", scrollY=500){
 length(unique(pheno_DLPFC$projid)) #a função unique tira os valores duplicados
 ```
 
-## Diagnosis
-
-At the time of death, all available clinical data were reviewed by a neurologist with expertise in dementia, and a summary diagnostic opinion was rendered regarding the most likely clinical diagnosis at the time of death. Summary diagnoses were made blinded to all postmortem data. Case conferences including one or more neurologists and a neuropsychologist were used for consensus on selected cases.
- 
-NCI: Non cognitive impairment 
-MCI: Mild cognitive impairment 
-AD: Alzheimer's Disease
-
-Source: [Rush Alzheimer's Disease Center (RADC)](https://www.radc.rush.edu/docs/var/detail.htm?category=Clinical+Diagnosis&subcategory=Final+consensus+diagnosis&variable=cogdx )
-
-```{r diagnosis, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
-
-#neste chunck há a comparação da quantidade de homens e mulheres com cada um dos diagnósticos: NCI, MCI, AD
-
-pheno_DLPFC$cogdx_3gp <- factor(pheno_DLPFC$cogdx_3gp, 
-                                levels = c("3", "2", "1"))
-
-pheno_DLPFC$msex<- as.factor(pheno_DLPFC$msex)
-
-p1 <- pheno_DLPFC %>%
-  group_by(cogdx_3gp, 
-           msex) %>% #criação dos grupos
-  filter (cogdx_3gp %in% c(1,2,3)) %>% #aqui eu estou filtrando para não mostrar a coluna de NA, apenas as que tem valores
-  summarise(
-    count_diagnosis = n ()
-  ) %>%
-  ggplot(aes(x = cogdx_3gp, 
-             y = count_diagnosis, 
-             fill = msex,
-             label = count_diagnosis)) +
-  geom_bar(stat = "identity",
-           position = "dodge") +
-   labs(x="Diagnosis", 
-       y="Frequency") +
-  scale_y_continuous(limits = c(0, 400), breaks = c(0, 100, 200, 300, 400)) +
-  scale_x_discrete(labels = c("1" = "NCI", 
-                              "2" = "MCI", 
-                              "3" = "AD")) +
-  scale_colour_manual(name="Sex", 
-                      values=c("0" = "#F4A582", 
-                               "1"="#77AADD"), 
-                      labels=c("0"="female", 
-                               "1"="male")) +
-  scale_fill_manual(name="Sex", 
-                    values = c("0" = "#F4A582", 
-                               "1"="#77AADD"), 
-                    labels=c("0"="Female", 
-                             "1"="Male")) +
-  geom_label(size = 3.5, alpha = 0.7, position = position_dodge(width = 1)) +
-  theme_classic()
-
-print (p1)
-
-```
-
-
 ## Age at baseline assessment
 
 The age at baseline assessment is calculated from subtracting the date of birth from the date of the baseline assessment and dividing by days per year (365.25).
