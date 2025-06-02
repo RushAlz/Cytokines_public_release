@@ -385,7 +385,7 @@ id_map <- data.frame(
 pheno_suppl <- pheno_DLPFC %>%
   left_join(id_map, by = "projid") %>%
   select(new_id, study, educ, msex, age_bl, apoe_genotype, age_death, cogng_demog_slope, 
-         cogng_path_slope, tangles_sqrt, amyloid_sqrt, caa_4gp, gpath, ad_dementia_status, cogdx_3gp)
+         cogng_path_slope, tangles_sqrt, amyloid_sqrt, caa_4gp, gpath, ad_dementia_status, ci_status)
 
 ```
 
