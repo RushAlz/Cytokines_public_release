@@ -1,0 +1,456 @@
+---
+title: "Linear and/or logistic regression - Single Nuclei RNAseq filtered by cytokines families"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> 424 unique samples | 
+> Dorsolateral prefrontal cortex (DLFPC) | 
+> ROSMAP cohort 
+
+Cytokine families annotation can be found [here](https://rushalz.github.io/Cytokines_public_release/cytokines_families.html)
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rstatix)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(readr)
+library(tibble)
+library(ggeasy)
+library(ggpubr)
+library(ggsignif)
+#BiocManager::install("ComplexHeatmap")
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+library(readxl)
+```
+
+```{r set_dir, warning=FALSE, message=FALSE, include=FALSE} 
+work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC"
+```
+
+```{r source_reg_function, warning=FALSE, message=FALSE, include=FALSE} 
+source("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/run_regressions_v2_adjcov.R") # Our script for regressions: linear and logistic 
+```
+
+```{r exprData_upload, warning=FALSE, message=FALSE, include=FALSE} 
+# Caminho completo para o arquivo RDS
+file_path <- file.path(work_dir, "snRNA_pseudoBulk_7majCellTypes.rds")
+
+# Carregue o arquivo RDS
+celltype_exp <- readRDS(file_path)
+```
+
+```{r phenoData_upload, warning=FALSE, message=FALSE, include=FALSE} 
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/pheno_SN.Rdata"
+load(file_path)
+dim(pheno_SN)
+```
+
+```{r cytokines_list_upload, warning=FALSE, message=FALSE, include=FALSE} 
+# upload list of cytokines
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T049/new_cytokines_families_T049.xlsx"
+cytokines <- read_excel(file_path)
+ensembls = cytokines$ensembl
+```
+
+# Regressions by cell type
+
+Input: Average expression by family. 
+
+Numbers and colors : -log10(nominal pvalue)
+
+cutpoints: 
+
+< 0.001 = *** 
+
+0.01 = ** 
+
+0.05 = *
+
+0.1 = . 
+
+1 = " " 
+
+```{r function_corr_sn, message=FALSE, warning=FALSE, results='hide', echo=FALSE} 
+run_cytokines_analysis <- function(celltype_list, list_name, output_filename_pdf, width_pdf, height_pdf, output_filename_png, width_png, height_png, title) {
+  exprData = celltype_list[[list_name]]
+  
+  # Filter the gene expression
+  exprData_filt = exprData[rownames(exprData) %in% cytokines$ensembl, ]
+  exprData_filt$ensembl = rownames(exprData_filt)
+  exprData_cytokines = merge(exprData_filt, cytokines, by = "ensembl")
+  rownames(exprData_cytokines) = exprData_cytokines$symbol
+  exprData_cytokines$ensembl = NULL
+  exprData_cytokines$symbol = NULL
+
+  # AD traits 
+  # The function adjusts by age, sex, and educ
+  pheno_list = c(
+    "cogng_demog_slope"="gaussian",
+    "cogng_path_slope"="gaussian",
+    "tangles_sqrt"="gaussian",
+    "amyloid_sqrt"="gaussian",
+    "gpath"="gaussian",
+    #"tdp_cs_6reg"="gaussian",
+    "ad_dementia_status"="binomial",
+    "ci_status"="binomial"
+  )
+  
+  # Reordere df
+  exprData_cytokines_reordered <- exprData_cytokines %>%
+  select(family, everything())
+
+  # Average expression
+  exprData_average <- exprData_cytokines_reordered %>%
+  group_by(family) %>% # Group cytokines per family
+  summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) # Summarize information getting average   expression in all df columns grouped by family groups
+
+  exprData_average <- as.data.frame(exprData_average)
+  row.names(exprData_average) <- exprData_average$family
+  exprData_average$family = NULL
+  exprData_average$average_expr = NULL
+
+  data4linear_reg <- as.data.frame(t(exprData_average))
+  phenotype_dt <- pheno_SN[match(rownames(data4linear_reg), pheno_SN$projid), ]
+
+  res_test = run_module_trait_association(data4linear_reg, phenotype_dt, pheno_list, covariates = c("age_death","msex", "educ"))
+
+  # Heatmap 
+  to_show = colnames(res_test$matrix_pvalue)
+  transpose = T
+  show_only_significant = F; signif_cutoff = c("***","**","*")
+
+  matrix_rsquared = res_test$matrix_rsquared
+  matrix_pvalue = res_test$matrix_pvalue # final matrix with the pvalues 
+  
+  # Reorder heatmap row names to paper 
+  row_newOrder <- c("gpath","tangles_sqrt","amyloid_sqrt","ad_dementia_status","ci_status","cogng_demog_slope","cogng_path_slope")
+  matrix_rsquared = matrix_rsquared[row_newOrder, ]
+  matrix_pvalue = matrix_pvalue[row_newOrder, ]
+
+  matrix_rsquared_to_plot = matrix_rsquared[,to_show]
+  matrix_pvalue_to_plot = matrix_pvalue[,to_show]
+
+  # Adjust P-values by each phenotype separately.
+  adj_matrix_pvalue_to_plot = matrix_pvalue_to_plot
+  for(i in 1:ncol(matrix_pvalue_to_plot)){
+    adj_matrix_pvalue_to_plot[,i] = p.adjust(matrix_pvalue_to_plot[,i], method = "bonferroni")
+  }
+  adj_matrix_pvalue_to_plot.signif <- symnum(x = as.matrix(adj_matrix_pvalue_to_plot), corr = FALSE, na = FALSE,
+                                             cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), 
+                                             symbols = c("***", "**", "*", ".", " "))
+
+  log_matrix_pvalue_to_plot = -log10(matrix_pvalue_to_plot)
+  dimnames(log_matrix_pvalue_to_plot) = dimnames(log_matrix_pvalue_to_plot)
+
+  if(show_only_significant){
+    if(is.numeric(signif_cutoff)){
+      to_keep = colSums(adj_matrix_pvalue_to_plot <= signif_cutoff) > 0
+    }else{
+      to_keep = rep(F,ncol(adj_matrix_pvalue_to_plot.signif))
+      for(cut_i in signif_cutoff){
+        to_keep = to_keep | colSums(adj_matrix_pvalue_to_plot.signif == cut_i) > 0 # change for the significance you want 
+      }
+    }
+    log_matrix_pvalue_to_plot = log_matrix_pvalue_to_plot[,to_keep]
+    adj_matrix_pvalue_to_plot.signif = adj_matrix_pvalue_to_plot.signif[,to_keep]
+  }
+
+  matrix_pvalue_to_plot_labels = formatC(log_matrix_pvalue_to_plot, format = "f", digits = 2)
+  log_matrix_pvalue_to_plot_t = t(log_matrix_pvalue_to_plot)
+
+  if(transpose){
+    log_matrix_pvalue_to_plot_t = t(log_matrix_pvalue_to_plot_t)
+    matrix_pvalue_to_plot_labels = t(matrix_pvalue_to_plot_labels)
+    adj_matrix_pvalue_to_plot.signif = t(adj_matrix_pvalue_to_plot.signif)
+  }
+
+  # Colored by -log10(pvalue)
+  # Numbers inside cell = -log10(pvalue): nominal
+  
+# New column names
+new_row_names <- c(
+  "gpath" = "Global AD burden",
+  "tangles_sqrt" = "PHFtau tangle density",
+  "amyloid_sqrt" = "Amyloid-β load",
+  "ad_dementia_status" = "AD diagnosis",
+  "ci_status" = "Mild cognitive impairment",
+  "cogng_demog_slope" = "Cognitive decline",
+  "cogng_path_slope" = "Resilience"
+)
+
+rownames(log_matrix_pvalue_to_plot_t) <- new_row_names[rownames(log_matrix_pvalue_to_plot_t)]
+
+# Group colors
+group_colors <- c("Pathology" = "#800074", "Cognition" = "#298c8c")
+
+# Y lab annotation
+group_ylab <- factor(
+  c("Pathology","Pathology","Pathology","Cognition","Cognition","Cognition","Cognition"),
+  levels = c("Pathology", "Cognition")
+)
+
+# Lateral annotation
+row_anno <- rowAnnotation(
+  Group = group_ylab,
+  col = list(Group = group_colors),
+  show_annotation_name = TRUE,
+  annotation_name_side = "top",
+  annotation_name_gp = gpar(fontsize = 9),
+  width = unit(1, "mm")
+)
+  
+
+heatmap_ext <- Heatmap(
+  log_matrix_pvalue_to_plot_t,
+  name = "-log10(P-value)",
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (as.character(t(adj_matrix_pvalue_to_plot.signif)[i, j]) == " ") {
+      grid.text(t(matrix_pvalue_to_plot_labels)[i, j], x, y, gp = gpar(fontsize = 8))
+    } else {
+      grid.text(
+        paste0(
+          t(matrix_pvalue_to_plot_labels)[i, j], "\n",
+          t(adj_matrix_pvalue_to_plot.signif)[i, j]
+        ),
+        x, y, gp = gpar(fontsize = 8)
+      )
+    }
+  },
+  col = colorRampPalette(rev(brewer.pal(n = 7, name = "RdYlBu")))(100),
+  row_names_side = "right",
+  show_row_names = TRUE,
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  column_names_gp = gpar(fontsize = 9),
+  row_names_gp = gpar(fontsize = 9),  
+  border = TRUE,
+  show_row_dend = FALSE,
+  show_column_dend = FALSE,
+  rect_gp = gpar(col = "white", lwd = 1),
+  column_names_rot = 40,
+  column_title = title
+)
+
+final_heatmap <- row_anno + heatmap_ext
+print(final_heatmap)
+
+# Saving as PDF
+pdf(file = output_filename_pdf, width = width_pdf, height = height_pdf)
+draw(final_heatmap)
+dev.off()
+
+# Saving as PNG
+png(file = output_filename_png, width = width_png, height = height_png, res = 300)
+draw(final_heatmap)
+dev.off()
+  
+  # Return the result object
+  return(res_test = res_test)
+}
+```
+
+## Excitatory Neurons
+
+```{r ext_neurons_reg, results = 'hide', message=FALSE, warning=FALSE, echo=FALSE, fig.width=4.75, fig.height=3} 
+# Run analysis
+result_ext <- run_cytokines_analysis(celltype_exp, "ext",
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_ext_T052.pdf", width_pdf = 4.75, height_pdf = 3,
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_ext_T052.png", width_png = 1450, height_png = 900, title = "Excitatory Neurons")
+```
+
+### Top results
+Top result by covariate. 
+
+```{r best_results_ext}
+# res_test$all_stats_df 
+createDT(result_ext$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+### Nominal pvalue
+
+```{r pvalue_ext}
+createDT(result_ext$matrix_pvalue)
+```
+
+## Inhibitory Neurons
+
+```{r inh_neurons_reg, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=4.75, fig.height=3} 
+result_inh <- run_cytokines_analysis(celltype_exp, "inh",
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_inh_T052.pdf", width_pdf = 4.75, height_pdf = 3,
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_inh_T052.png", width_png = 1450, height_png = 900, title = "Inhibitory Neurons")
+```
+
+### Top results
+Top result by covariate. 
+
+```{r best_results_inh}
+# res_test$all_stats_df 
+createDT(result_inh$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+### Nominal pvalue
+
+```{r pvalue_inh}
+createDT(result_inh$matrix_pvalue)
+```
+
+## Microglia
+
+```{r mic_reg, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=4.75, fig.height=3} 
+
+result_mic <- run_cytokines_analysis(celltype_exp, "mic",
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_mic_T052.pdf", width_pdf = 4.75, height_pdf = 3,
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_mic_T052.png", width_png = 1450, height_png = 900, title = "Microglia")
+```
+
+### Top results
+Top result by covariate. 
+
+```{r best_results_mic}
+# res_test$all_stats_df 
+createDT(result_mic$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+### Nominal pvalue
+
+```{r pvalue_mic}
+createDT(result_mic$matrix_pvalue)
+```
+
+## Oligodendrocytes
+
+```{r oli_reg, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=4.75, fig.height=3} 
+
+result_oli <- run_cytokines_analysis(celltype_exp, "oli",
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_oli_T052.pdf", width_pdf = 4.75, height_pdf = 3,
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_oli_T052.png", width_png = 1525, height_png = 900, title = "Oligodendrocytes")
+```
+
+### Top results
+Top result by covariate. 
+
+```{r best_results_oli}
+# res_test$all_stats_df 
+createDT(result_oli$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+### Nominal pvalue
+
+```{r pvalue_oli}
+createDT(result_oli$matrix_pvalue)
+```
+
+## Astrocytes
+
+```{r ast_reg, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=4.75, fig.height=3} 
+
+result_ast <- run_cytokines_analysis(celltype_exp, "ast",
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_ast_T052.pdf", width_pdf = 4.75, height_pdf = 3,
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_ast_T052.png", width_png = 1450, height_png = 900, title = "Astrocytes")
+```
+
+### Top results
+Top result by covariate. 
+
+```{r best_results_ast}
+# res_test$all_stats_df 
+createDT(result_ast$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+### Nominal pvalue
+
+```{r pvalue_ast}
+createDT(result_ast$matrix_pvalue)
+```
+
+## Oligodendrocyte progenitor cells
+
+```{r opc_reg, message=FALSE, warning=FALSE, echo=FALSE, results='hide', fig.width=4.75, fig.height=3} 
+
+result_opc <- run_cytokines_analysis(celltype_exp, "opc",
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_opc_T052.pdf", width_pdf = 4.75, height_pdf = 3,
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_opc_T052.png", width_png = 1450, height_png = 900, title = "OPC cells")
+```
+
+### Top results
+Top result by covariate. 
+
+```{r best_results_opc}
+# res_test$all_stats_df 
+createDT(result_opc$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+### Nominal pvalue
+
+```{r pvalue_opc}
+createDT(result_opc$matrix_pvalue)
+```
+
+## Endothelial cells
+
+```{r end_reg, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=4.75, fig.height=3} 
+
+result_end <- run_cytokines_analysis(celltype_exp, "end",
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_end_T052.pdf", width_pdf = 4.75, height_pdf = 3,
+                                     "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T052/reg_family_end_T052.png", width_png = 1375, height_png = 900, title = "Endothelial cells")
+```
+
+### Top results
+Top result by covariate. 
+
+```{r best_results_end}
+# res_test$all_stats_df 
+createDT(result_end$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+### Nominal pvalue
+
+```{r pvalue_end}
+createDT(result_end$matrix_pvalue)
+```
+
+# Session info
+```{r info}
+sessionInfo()
+```
