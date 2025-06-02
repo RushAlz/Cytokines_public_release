@@ -24,6 +24,7 @@ Results:
 	- Scatter plot showing correlation among IL15 microglial expression and AD pathological traits can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/scatter_plot_IL15_mic.html)
 	- Boxplot showing IL15 expression in bulk RNAseq data by diagnosis can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/boxplot_IL15_bulk.html)
 	- Boxplot showing IL15 expression in microglia by diagnosis can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/boxplot_IL15_mic.html)
+	- Regression analysis with cytokine genes grouped by family: bulk data is [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/family_bulk_LR_by_pheno.html) and single-nuclei data are [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/family_sn_LR_by_pheno.html)
 	
 2. Biological sources of variance for the cytokines:
 
