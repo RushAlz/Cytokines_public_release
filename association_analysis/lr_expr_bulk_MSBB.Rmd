@@ -1,0 +1,277 @@
+---
+title: "Replication - Linear and/or logistic regression - Mount Sinai Brain Bank (MSBB) dataset"
+author: |
+ | Juliana Beker Godoy, MSc
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+> Bulk RNA-Seq data | Brain region: frontal lobe | 304 unique samples
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo=FALSE, results='hide', warning=FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rstatix)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(readr)
+library(tibble)
+library(ggeasy)
+library(ggpubr)
+library(ggsignif)
+#BiocManager::install("ComplexHeatmap")
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+library(readxl)
+library(openxlsx)
+```
+
+```{r source_reg_function, echo=FALSE, results='hide', warning=FALSE} 
+source("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/run_regressions_v2_adjcov.R") # Our script for regressions: linear and logistic 
+```
+
+```{r dataset_upload, warning=FALSE,message=FALSE, include=FALSE}   
+# data_bulk <- load ("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/bulk_DLPFC_2022.Rdata")
+exprData_MSBB <- read_tsv("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/replication/T026/MSBB_Normalized_counts_CQN.tsv")
+```
+
+```{r phenoData_upload, warning=FALSE} 
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/replication/T026/RNAseq_Harmonization_MSBB_combined_metadata.csv"
+pheno_data <- read.csv(file_path)
+```
+
+```{r gene_list, warning=FALSE,message=FALSE}
+# upload list of cytokines
+file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T023/list_cytokines_T023.xlsx"
+cytokines <- read_excel(file_path)
+cytokines <- subset(cytokines, select = -family) # I removed the 'family' column here because it had NA values
+ensembls = cytokines$ensembl
+```
+
+```{r select_brain_region, echo=FALSE, warning=FALSE}
+# Filter bulk expression data to retain only frontal pole
+# Similiar to DLPFC region
+pheno_temp= pheno_data[pheno_data$exclude == "FALSE", ] # Remove the samples that didn't pass QC 
+pheno_sel = pheno_temp[pheno_temp$tissue == "frontal pole", ] # select the frontal pole (BA = 10)
+
+# expression matrix 
+rownames(exprData_MSBB) = exprData_MSBB$feature
+exprData_MSBB_sel <- exprData_MSBB[, c("feature", colnames(exprData_MSBB)[colnames(exprData_MSBB) %in% pheno_sel$specimenID])]
+
+message(paste0("Number of samples: ", length(colnames(exprData_MSBB_sel)) - 1))
+```
+
+```{r gene_expression, warning=FALSE,message=FALSE, include=FALSE}
+# Filter the gene expression
+names(exprData_MSBB_sel)[names(exprData_MSBB_sel) == "feature"] <- "ensembl"
+expr_MSBB_filt = exprData_MSBB_sel[exprData_MSBB_sel$ensembl %in% cytokines$ensembl,]
+exprData_cytokines = merge(expr_MSBB_filt, cytokines, by = "ensembl")
+rownames(exprData_cytokines) = exprData_cytokines$symbol
+exprData_cytokines$ensembl = NULL
+exprData_cytokines$symbol = NULL
+exprData_cytokines$family = NULL
+```
+
+## Correlation
+
+```{r pheno_list, warning=FALSE, message=FALSE, include=FALSE}
+pheno_list = c("CERAD" = "gaussian", # Test from the Consortium to Establish a Registry for Alzheimer's Disease
+               "Braak" = "gaussian", # AD score for progression of neurofibrillary pathology
+               "CDR" = "gaussian", #  Clinical dementia rating scale
+               "plaqueMean" = "gaussian") # density of neuritic plaques
+
+```
+
+```{r expr_pheno, warning=FALSE, message=FALSE, include=FALSE}
+data4linear_reg <- as.data.frame(t(exprData_cytokines))
+
+phenotype_dt <- pheno_sel[match(rownames(data4linear_reg), pheno_sel$specimenID), ]
+dim(phenotype_dt)
+all(rownames(data4linear_reg) == phenotype_dt$specimenID) # Must be TRUE. Check the IDs
+
+res_test = run_module_trait_association(data4linear_reg, phenotype_dt, pheno_list, covariates = c("ageDeath","sex", "ethnicity"))
+```
+
+```{r supplementary_table, warning=FALSE}
+to_show = colnames(res_test$matrix_pvalue)
+transpose = T
+show_only_significant = F; signif_cutoff = c("***","**","*")
+
+matrix_rsquared = res_test$matrix_rsquared
+matrix_pvalue = res_test$matrix_pvalue # final matrix with the pvalues 
+
+matrix_rsquared_to_plot = matrix_rsquared[,to_show]
+matrix_pvalue_to_plot = matrix_pvalue[,to_show]
+```
+
+```{r heatmap, fig.height=2.15, fig.width=6.7, warning=FALSE}
+# Heatmap 
+to_show = colnames(res_test$matrix_pvalue)
+transpose = T
+show_only_significant = T; signif_cutoff = c("***","**","*")
+
+matrix_rsquared = res_test$matrix_rsquared
+matrix_pvalue = res_test$matrix_pvalue # final matrix with the pvalues 
+
+matrix_rsquared_to_plot = matrix_rsquared[,to_show]
+matrix_pvalue_to_plot = matrix_pvalue[,to_show]
+
+# Adjust P-values by each phenotype separately.
+adj_matrix_pvalue_to_plot = matrix_pvalue_to_plot
+for(i in 1:ncol(matrix_pvalue_to_plot)){
+  adj_matrix_pvalue_to_plot[,i] = p.adjust(matrix_pvalue_to_plot[,i], method = "bonferroni")
+}
+adj_matrix_pvalue_to_plot.signif <- symnum(x = as.matrix(adj_matrix_pvalue_to_plot), corr = FALSE, na = FALSE,
+                                           cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), 
+                                           symbols = c("***", "**", "*", ".", " "))
+
+log_matrix_pvalue_to_plot = -log10(matrix_pvalue_to_plot)
+dimnames(log_matrix_pvalue_to_plot) = dimnames(log_matrix_pvalue_to_plot)
+
+if(show_only_significant){
+  if(is.numeric(signif_cutoff)){
+    to_keep = colSums(adj_matrix_pvalue_to_plot <= signif_cutoff) > 0
+  }else{
+    to_keep = rep(F,ncol(adj_matrix_pvalue_to_plot.signif))
+    for(cut_i in signif_cutoff){
+      to_keep = to_keep | colSums(adj_matrix_pvalue_to_plot.signif == cut_i) > 0 # change for the significance you want 
+    }
+  }
+  log_matrix_pvalue_to_plot = log_matrix_pvalue_to_plot[,to_keep]
+  adj_matrix_pvalue_to_plot.signif = adj_matrix_pvalue_to_plot.signif[,to_keep]
+}
+
+matrix_pvalue_to_plot_labels = formatC(log_matrix_pvalue_to_plot, format = "f", digits = 2)
+log_matrix_pvalue_to_plot_t = t(log_matrix_pvalue_to_plot)
+
+if(transpose){
+  log_matrix_pvalue_to_plot_t = t(log_matrix_pvalue_to_plot_t)
+  matrix_pvalue_to_plot_labels = t(matrix_pvalue_to_plot_labels)
+  adj_matrix_pvalue_to_plot.signif = t(adj_matrix_pvalue_to_plot.signif)
+}
+
+# Colored by -log10(pvalue)
+# Numbers inside cell = -log10(pvalue): nominal
+  new_column_names <- c(
+    "Braak" = "Braak stages",
+    "CERAD" = "CERAD score",
+    "CDR" = "CDR scale",
+    "plaqueMean" = "Plaque mean"
+)
+
+rownames(log_matrix_pvalue_to_plot_t) <- new_column_names[rownames(log_matrix_pvalue_to_plot_t)]
+
+
+heatmap_plot <- Heatmap(log_matrix_pvalue_to_plot_t, name = "-log10(P-value)",
+                        cell_fun = function(j, i, x, y, width, height, fill) {
+                          if(as.character(t(adj_matrix_pvalue_to_plot.signif)[i,j]) == " "){
+                            grid.text( t(matrix_pvalue_to_plot_labels)[i,j], x, y, 
+                                       gp = gpar(fontsize = 8))
+                          }else{
+                            grid.text(paste0( t(matrix_pvalue_to_plot_labels)[i,j],"\n", t(adj_matrix_pvalue_to_plot.signif)[i,j] ), x, y, 
+                                      gp = gpar(fontsize = 8))
+                          }
+                        },
+                        col = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(100),
+                        column_names_rot = 40,
+                        column_title = "Mount Sinai bulk RNA-seq data",
+                        row_names_side = "right", show_row_names = T,
+                        cluster_rows = F, cluster_columns = F,
+                        column_names_gp = gpar(fontsize = 9, fontface = "italic"),
+                        row_names_gp = gpar(fontsize = 9),
+                        border = T,
+                        show_row_dend = F, show_column_dend = F, rect_gp = gpar(col = "white", lwd = 1))
+
+ht_draw <- draw(heatmap_plot, padding = unit(c(1, 4, 1, 1), "mm"))  # Ajustar as margens (top, right, bottom, left)
+
+# Save to PDF
+pdf(file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/replication/T027/lr_expr_bulk_MSBB_T027.pdf", width = 6.4, height = 1.95)
+print(ht_draw)
+dev.off()
+
+# Save to PNG
+png(file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/replication/T027/lr_expr_bulk_MSBB_T027.png", width = 6.4, height = 1.95, units = "in", res = 300)
+print(ht_draw)
+dev.off()
+```
+```{r supplementary_material, include=FALSE, warning=FALSE}
+### Getting p-values and r-squared
+df_res_test <- res_test[["all_stats_df"]] %>%
+  rename(gene_symbol = module) %>%
+  left_join(cytokines, by = c("gene_symbol" = "symbol"))
+str(df_res_test)
+
+### Getting adj p-values
+adj_pvalue <- as.data.frame(adj_matrix_pvalue_to_plot)
+# melting the df
+adj_pvalue_long <- adj_pvalue %>%
+  tibble::rownames_to_column(var = "phenotype") %>% 
+  pivot_longer(cols = -phenotype, names_to = "gene_symbol", values_to = "adj_pvalue")
+
+# Putting all df's together
+df_regression <- df_res_test %>% 
+  left_join(adj_pvalue_long, by = c("gene_symbol", "phenotype")) %>% 
+  select(phenotype, gene_symbol, ensembl, nom_p, adj_pvalue, rsquared)
+
+# Formatando para garantir que o excel br não altere a notação científica dos valores
+df_regression <- df_regression %>%
+  mutate(across(where(is.numeric), ~ format(., scientific = TRUE, digits = 15)))
+
+# Saving xlsx
+write.xlsx(df_regression, file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/replication/T027/reg_MSBB_T027.xlsx", row.names = FALSE)
+```
+
+## Top results
+
+Top result by covariate. 
+
+```{r best_results}
+# res_test$all_stats_df 
+createDT(res_test$all_stats_df %>% group_by(phenotype) %>% slice_head(n = 1))
+```
+
+## Nominal pvalue
+
+```{r pvalue}
+createDT(res_test$matrix_pvalue)
+```
+
+# Session info
+```{r session info}
+sessionInfo()
+```
