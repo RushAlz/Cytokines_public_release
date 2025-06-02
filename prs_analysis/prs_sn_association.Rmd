@@ -335,6 +335,12 @@ file_path <- file.path(work_dir, "gsea_results_T053.xlsx")
 write.xlsx(res_gsea_xlsx, file_path, row.names = FALSE)
 ```
 
+### Nominal pvalue
+
+```{r pvalue_gsea}
+createDT(gsea_results[1:5,])
+```
+
 ## Risk Group Comparison by PRS
 
 ```{r prs_groups, warning=FALSE, message=FALSE, fig.width=18, fig.height=5}
