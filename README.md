@@ -18,8 +18,8 @@ Results:
 
 1. Association analysis:
 	
-	- Linear and/or logistic regressions using [bulk RNAseq data are here](https://rushalz.github.io/Cytokines_public_release/association_analysis/signif_heatmap_correl_bulkRNA.html)
-	- Linear and/or logistic regressions using [single-nuclei RNAseq data are here](https://rushalz.github.io/Cytokines_public_release/association_analysis/signif_heatmap_correl_snRNA.html)
+	- Linear and/or logistic regressions using bulk RNAseq data are [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/signif_heatmap_correl_bulkRNA.html)
+	- Linear and/or logistic regressions using single-nuclei RNAseq data are [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/signif_heatmap_correl_snRNA.html)
 	- Scatter plot showing correlation among IL15 expression in the bulk RNAseq dataset and AD traits can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/scatter_plots_IL15_bulk.html)
 	- Scatter plot showing correlation among IL15 microglial expression and AD pathological traits can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/scatter_plot_IL15_mic.html)
 	- Boxplot showing IL15 expression in bulk RNAseq data by diagnosis can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/boxplot_IL15_bulk.html)
@@ -35,7 +35,8 @@ Results:
 	
 3. Genetic risk on cytokines expression:
 
-	- AD-PRS analysis using single-nuclei RNAseq data can be found [here](https://rushalz.github.io/Cytokines_public_release/prs_analysis/prs_sn_association.html)
+	- AD genetic risk (AD-PRS and APOE) and their associations with cytokine brain expression in specific cell types can be found [here](https://rushalz.github.io/Cytokines_public_release/APOE_and_PRS_results/PRS_analysis_and_figures_review1.html)
+	- Results of linear and/or logistic regressions between cytokines and [APOE ε4](https://rushalz.github.io/Cytokines_public_release/APOE_and_PRS_results/signif_heatmap_APOE_tests_review) and [AD-PRS](https://rushalz.github.io/Cytokines_public_release/APOE_and_PRS_results/signif_heatmap_PRS_tests_review)
 	
 4. Gene set enrichment analysis (GSEA):
 
