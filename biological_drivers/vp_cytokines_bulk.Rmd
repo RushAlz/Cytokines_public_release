@@ -2,10 +2,9 @@
 title: "Sources of variance for the cytokines - Bulk RNAseq"
 author: |
  | Juliana Beker Godoy, MSc
- | Graduate Program in Bioinformatics
- | Professional and Technological Education Sector
- | Federal University of Parana (UFPR)
- | Curitiba, Brazil
+ | Graduate Program in Bioinformatics, Professional and Technological Education Sector, Federal University of Parana (UFPR)
+ | Katia de Paiva Lopes, PhD
+ | Rush Alzheimer’s Disease Center, Rush University Medical Center
 date: "`r Sys.Date()`"
 output:
  rmarkdown::html_document:
@@ -168,7 +167,7 @@ dev.off()
 
 ```
 
-```{r supplementary_material}
+```{r supp_material}
 vp_df <- as.data.frame(vp)
 colnames(vp_df) <- c("Cognitive decline", "Age of death", "Global AD burden", "Tangles density", "Amyloid accumulation", "Sex", "Cerebral amyloid angiopathy", "Apoe 4", "AD diagnosis", "Residuals")
 
