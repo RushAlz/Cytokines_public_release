@@ -1,0 +1,191 @@
+---
+title: "Associations - APOE - snRNA-seq"
+author: |
+ | Ricardo A. Vialle, Rush Alzheimer's Disease Center, Rush University Medical Center, Chicago, IL, USA
+ | Juliana Beker Godoy, MSc - Graduate program in Bioinformatics, UFPR, Curitiba, Brazil
+ | Katia de Paiva Lopes, Rush Alzheimer's Disease Center, Rush University Medical Center, Chicago, IL, USA
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+# Linear/Logistic Regression
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rstatix)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(readr)
+library(tibble)
+library(ggeasy)
+library(data.table)
+library(ggpubr)
+library(ggsignif)
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+options(encoding = "UTF-8")
+```
+
+```{r set_dir, warning=FALSE, message=FALSE, include=FALSE} 
+work_dir <- "/pastel/projects/cytokines_Juliana/JNI_revision_I/"
+```
+
+```{r source_reg_function, warning=FALSE, message=FALSE, include=FALSE} 
+source("/pastel/projects/cytokines_Juliana/JNI_revision_I/run_regressions_v3_adjcov.R") # Our script for regressions: linear and logistic 
+```
+
+## Read data and prepare inputs
+
+```{r , warning=FALSE, message=FALSE, include=FALSE} 
+# Expression data - batch adjusted
+file_path <- file.path(work_dir, "snRNA_pseudoBulk_7majCellTypes.ComBat.rds")
+celltype_exp <- readRDS(file_path)
+lapply(celltype_exp, dim) # Check dimensions of each cell type
+
+ancestry_PCs = read_csv("/pastel/projects/sv_and_resilience/pca.ancestry_pcs.csv")
+idmapping = read_delim(paste0("/pastel/projects/sv_and_resilience/ROSMAP_IDkey_with_fixed_projids.csv"),
+                       guess_max = 1e6, show_col_types = FALSE)
+# Map sample ids in the genetic PCs file
+ancestry_PCs = ancestry_PCs %>% left_join(unique(idmapping[,c("projid","wgs_id")]), by = c("ancestry"="wgs_id")) %>% as.data.frame()
+ancestry_PCs$ancestry = ifelse(!is.na(ancestry_PCs$projid), "ROSMAP", ancestry_PCs$ancestry)
+
+pheno_SN = as.data.frame(readRDS(file.path(work_dir, "phenotypes_updated.rds")))
+rownames(pheno_SN) = pheno_SN$projid
+
+# Replace NA values in 'pmi' with the mean of non-NA values
+pheno_SN$pmi[is.na(pheno_SN$pmi)] <- mean(pheno_SN$pmi, na.rm = TRUE)
+
+dim(pheno_SN)
+```
+
+```{r cytokines_list_upload, warning=FALSE, message=FALSE, include=FALSE} 
+file_path <- paste0(work_dir, "list_cytokines_T015.txt")
+cytokines <- read.delim(file_path, header = TRUE, check.names = FALSE, stringsAsFactors = FALSE)
+cytokines <- subset(cytokines, select = -family) 
+ensembls = cytokines$ensembl
+```
+
+## Prepare parameters
+
+```{r}
+covariates = c("age_death","msex", "educ", "pmi")
+
+pheno_list = c(
+  "apoe_any4"="binomial"
+)
+```
+
+## Run association tests
+
+```{r eval=T}
+assoc_results = list()
+for(cell_i in names(celltype_exp)) {
+  exprData = as.data.frame(celltype_exp[[cell_i]])
+  
+  # Filter the gene expression
+  exprData_ensembl = gsub("(.*)\\.(.*)","\\1", rownames(exprData)) 
+  exprData_filt = exprData[exprData_ensembl %in% cytokines$ensembl, ]
+  exprData_filt$ensembl = gsub("(.*)\\.(.*)","\\1",rownames(exprData_filt))
+  exprData_cytokines = merge(exprData_filt, cytokines, by = "ensembl")
+  rownames(exprData_cytokines) = exprData_cytokines$symbol
+  exprData_cytokines$ensembl = NULL
+  exprData_cytokines$symbol = NULL
+  
+  data4linear_reg <- as.data.frame(t(exprData_cytokines))
+  phenotype_dt <- pheno_SN[match(rownames(data4linear_reg), pheno_SN$projid), ]
+  
+  res_test = run_module_trait_association(data4linear_reg, 
+                                          phenotype_dt, 
+                                          pheno_list,
+                                          covariates = covariates)
+  
+  assoc_results[[cell_i]] = res_test
+}
+save(assoc_results, file = file.path(work_dir, "cytokines_snRNA_APOE_association_results.RData"))
+```
+
+```{r}
+all_stats = lapply(assoc_results, function(x) x$all_stats_df) %>% 
+  bind_rows(.id = "cell_type") %>% 
+  mutate(cell_type = factor(cell_type, levels = names(celltype_exp))) %>%
+  arrange(p) 
+```
+
+### ext 
+
+```{r}
+createDT(all_stats[all_stats$cell_type == "ext",])
+```
+
+### inh 
+
+```{r}
+createDT(all_stats[all_stats$cell_type == "inh",])
+```
+
+### oli 
+
+```{r}
+createDT(all_stats[all_stats$cell_type == "oli",])
+```
+
+### ast 
+
+```{r}
+createDT(all_stats[all_stats$cell_type == "ast",])
+```
+
+### opc 
+
+```{r}
+createDT(all_stats[all_stats$cell_type == "opc",])
+```
+
+### mic 
+
+```{r}
+createDT(all_stats[all_stats$cell_type == "mic",])
+```
+
+### end
+
+```{r}
+createDT(all_stats[all_stats$cell_type == "end",])
+```
+
+# Session info
+```{r}
+sessionInfo()
+```
