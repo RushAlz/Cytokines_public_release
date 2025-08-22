@@ -2,9 +2,14 @@
 title: "Sources of variance for the cytokines - Single-nuclei RNAseq"
 author: |
  | Juliana Beker Godoy, MSc
- | Graduate Program in Bioinformatics, Professional and Technological Education Sector, Federal University of Parana (UFPR)
- | Katia de Paiva Lopes, PhD
- | Rush Alzheimer’s Disease Center, Rush University Medical Center
+ | Graduate Program in Bioinformatics
+ | Professional and Technological Education Sector
+ | Federal University of Parana (UFPR)
+ | Curitiba, Brazil
+ 
+ | Katia Lopes, PhD
+ | Rush Alzheimer's Disease Center 
+ |
 date: "`r Sys.Date()`"
 output:
  rmarkdown::html_document:
@@ -51,7 +56,8 @@ library(openxlsx)
 ```
 
 ```{r set_dir, warning=FALSE, message=FALSE, include=FALSE} 
-work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC"
+# work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC"
+work_dir <- "/pastel/projects/cytokines_Juliana/JNI_revision_I/"
 ```
 
 ```{r exprData_upload, warning=FALSE, message=FALSE, include=FALSE} 
@@ -61,20 +67,21 @@ celltype_exp <- readRDS(file_path)
 
 ```{r phenoData_upload, warning=FALSE, message=FALSE, include=FALSE} 
 file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/pheno_SN.Rdata"
-load(file_path)
-phenotype_dt <- pheno_SN
+pheno = as.data.frame(readRDS("/pastel/resources/data2share/basic_Apr2022_customJul2024.rds"))
+phenotype_dt <- pheno
 ```
 
 ```{r apoe4, warning=FALSE, message=FALSE, include=FALSE}
-phenotype_dt$apoe4 <- as.factor(as.integer(grepl("4", phenotype_dt$apoe_genotype)))
-head(phenotype_dt)
+phenotype_dt$apoe_any4 <- as.factor(phenotype_dt$apoe_any4)
+# head(phenotype_dt)
 ```
 
 ```{r cytokines_list_upload, warning=FALSE, message=FALSE, include=FALSE} 
 # upload list of cytokines
-file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T015/list_cytokines_T015.txt"
+# file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T015/list_cytokines_T015.txt"
+file_path <- paste0(work_dir, "list_cytokines_T015.txt")
 cytokines <- read.delim(file_path, header = TRUE, check.names = FALSE, stringsAsFactors = FALSE)
-cytokines <- subset(cytokines, select = -family) # I removed the 'family' column here because it had NA values
+cytokines <- subset(cytokines, select = -family)
 ensembls = cytokines$ensembl
 ```
 
@@ -95,7 +102,7 @@ vp4sn <- function(celltype_list, list_name, output_filename, title, code_color) 
 
   exprData <- celltype_list[[list_name]]
   
-  # Filtrar a expressão gênica
+  # Filter
   exprData_filt <- exprData[rownames(exprData) %in% cytokines$ensembl, ]
   exprData_filt$ensembl <- rownames(exprData_filt)
   expr_target <- merge(exprData_filt, cytokines, by = "ensembl")
@@ -114,18 +121,17 @@ vp4sn <- function(celltype_list, list_name, output_filename, title, code_color) 
                                         "caa_4gp",
                                         "age_death",
                                         "msex",
-                                        "apoe4")]
+                                        "apoe_any4")]
 
   phenotype_dt_filt$cogdx_3gp <- as.factor(phenotype_dt_filt$cogdx_3gp)
   phenotype_dt_filt$caa_4gp <- as.factor(phenotype_dt_filt$caa_4gp)
   phenotype_dt_filt$msex <- as.factor(phenotype_dt_filt$msex)
 
-  form <- ~ cogng_demog_slope + tangles_sqrt + amyloid_sqrt + gpath + (1|cogdx_3gp) + (1|caa_4gp) + age_death + (1|msex) + (1|apoe4)
+  form <- ~ cogng_demog_slope + tangles_sqrt + amyloid_sqrt + gpath + (1|cogdx_3gp) + (1|caa_4gp) + age_death + (1|msex) + (1|apoe_any4)
 
   varPart_tx <- suppressWarnings(fitExtractVarPartModel(expr_target, form, phenotype_dt_filt))
   vp <- sortCols(varPart_tx)
 
-  # Renomeando as variáveis antes da criação de vp_m
   colnames(vp) <- recode(colnames(vp),
                          "cogng_demog_slope" = "Cognitive decline",
                         "tangles_sqrt" = "PHFtau tangle density",
@@ -135,7 +141,7 @@ vp4sn <- function(celltype_list, list_name, output_filename, title, code_color) 
                         "caa_4gp" = "Cerebral amyloid angiopathy",
                         "age_death" = "Age of death",
                         "msex" = "Sex",
-                        "apoe4" = "Apoe 4")
+                        "apoe_any4" = "Apoe 4")
 
   vp_m <- reshape2::melt(vp[,-ncol(vp)])
   vp_m$gene_label <- rownames(vp)
@@ -176,7 +182,6 @@ vp4sn <- function(celltype_list, list_name, output_filename, title, code_color) 
   print(gg)
   dev.off()
   
-  # Retorno dos objetos
   return(list(vp = vp,
               vp_m = vp_m))
   
@@ -186,43 +191,43 @@ vp4sn <- function(celltype_list, list_name, output_filename, title, code_color) 
 ## Excitatory Neurons
 
 ```{r ext_neurons_VP, message=FALSE, results='hide', warning=FALSE, echo=FALSE, fig.width=10, fig.height=6} 
-result_ext <- vp4sn(celltype_exp, "ext", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_ext_T040", "Excitatory neurons", "#9fc5e8")
+result_ext <- vp4sn(celltype_exp, "ext", "/pastel/projects/cytokines_Juliana/JNI_revision_I/vp/vp_ext", "Excitatory neurons", "#9fc5e8")
 ```
 
 ## Inhibitory Neurons
 
 ```{r inh_neurons_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
-result_inh <- vp4sn(celltype_exp, "inh", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_inh_T040", "Inhibitory neurons", "#e06666")
+result_inh <- vp4sn(celltype_exp, "inh", "/pastel/projects/cytokines_Juliana/JNI_revision_I/vp/vp_inh", "Inhibitory neurons", "#e06666")
 ```
 
 ## Microglia
 
 ```{r mic_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
-result_mic <- vp4sn(celltype_exp, "mic", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_mic_T040", "Microglia", "#f6b26b")
+result_mic <- vp4sn(celltype_exp, "mic", "/pastel/projects/cytokines_Juliana/JNI_revision_I/vp/vp_mic", "Microglia", "#f6b26b")
 ```
 
 ## Oligodendrocytes
 
 ```{r oli_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
-result_oli <- vp4sn(celltype_exp, "oli", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_oli_T040", "Oligodendrocytes", "#b6d7a8")
+result_oli <- vp4sn(celltype_exp, "oli", "/pastel/projects/cytokines_Juliana/JNI_revision_I/vp/vp_oli", "Oligodendrocytes", "#b6d7a8")
 ```
 
 ## Astrocytes
 
 ```{r ast_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
-result_ast <- vp4sn(celltype_exp, "ast", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_ast_T040", "Astrocytes", "#b4a7d6")
+result_ast <- vp4sn(celltype_exp, "ast", "/pastel/projects/cytokines_Juliana/JNI_revision_I/vp/vp_ast", "Astrocytes", "#b4a7d6")
 ```
 
 ## Oligodendrocyte progenitor cells
 
 ```{r opc_VP, message=FALSE, warning=FALSE, echo=FALSE, results='hide', fig.width=10, fig.height=6} 
-result_opc <- vp4sn(celltype_exp, "opc", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_opc_T040", "Oligodendrocyte progenitor cells", "#6aa84f")
+result_opc <- vp4sn(celltype_exp, "opc", "/pastel/projects/cytokines_Juliana/JNI_revision_I/vp/vp_opc", "Oligodendrocyte progenitor cells", "#6aa84f")
 ```
 
 ## Endothelial cells
 
 ```{r end_VP, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=10, fig.height=6} 
-result_end <- vp4sn(celltype_exp, "end", "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/vp_end_T040", "Endothelial cells", "#fff2cc")
+result_end <- vp4sn(celltype_exp, "end", "/pastel/projects/cytokines_Juliana/JNI_revision_I/vp/vp_end", "Endothelial cells", "#fff2cc")
 ```
 
 ```{r supplementary_material}
@@ -252,15 +257,14 @@ variance_end <- extract_vp(result_end[["vp"]], "end")
 final_matrix_variance <- variance_ext %>% 
   bind_rows(variance_inh, variance_mic, variance_ast, variance_oli, variance_opc, variance_end)
 
-# Formatando para garantir que o excel br não altere a notação científica dos valores
 final_matrix_variance <- final_matrix_variance %>%
   mutate(across(where(is.numeric), ~ format(., scientific = TRUE, digits = 15)))
 
-# Saving xlsx
-write.xlsx(final_matrix_variance, file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T040/variance_vp_sn_T040.xlsx", rowNames = FALSE)
+write.xlsx(final_matrix_variance, file = paste0(work_dir, "vp/variance_vp_sn_JNI_rev1.xlsx", rowNames = FALSE)) 
 ```
 
 # Session info
 ```{r}
 sessionInfo()
 ```
+
