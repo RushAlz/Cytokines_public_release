@@ -47,23 +47,14 @@ library(readxl)
 library(openxlsx)
 ```
 
-```{r set_dir, echo=FALSE} 
-work_dir = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T023/"
-```
 
 # Cytokines
 
 
 This list of cytokines was constructed based on the supplementary material from [Cui et al. Nature, 2020](https://www.nature.com/articles/s41586-023-06816-9) e [Santoso Nucleic Acids Research et al., 2020](https://academic.oup.com/nar/article/48/21/12055/5976935?login=false).
 
-```{r gene_list, warning=FALSE, message=FALSE}
-# upload gene list
-file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T023/list_cytokines_T023.xlsx"
-cytokines <- read_excel(file_path)
-```
-
 ```{r update_gene_family, warning=FALSE, message=FALSE}
-# Reducing cytokine families
+
 cytokines <- cytokines %>%
   mutate(family = case_when(
     family %in% c("IL-10", "IL-17", "IL-1", "Common γ chain/IL-13/TSLP", "IL-6/IL-12", "IL10", "IL32", "Common β chain") ~ "Interleukine",
@@ -72,8 +63,6 @@ cytokines <- cytokines %>%
 
 createDT(cytokines)
 
-# Saving excel
-write.xlsx(cytokines, file = "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T049/new_cytokines_families_T049.xlsx", row.names = FALSE)
 ```
 
 ```{r bar_plot, warning=FALSE, message=FALSE, fig.align='center', fig.width=8, fig.height=8, results='hide'}
@@ -87,9 +76,8 @@ bar_plot <- barplot(family_counts,
                     ylab = "Number of genes",
                     col = "skyblue",
                     axisnames = FALSE,
-                    ylim = c(0, max(family_counts) * 1.25))  # Increase the top margin by 10%) 
+                    ylim = c(0, max(family_counts) * 1.25))  
 
-# Rotacionar as legendas do eixo x em 45 graus
 text(x = bar_plot + 0.1, y = par("usr")[3] - 1.3, labels = names(family_counts), srt = 25, adj = c(1, 1.25), xpd = TRUE, cex = 1)
 
 print(bar_plot)
