@@ -1,0 +1,605 @@
+---
+title: "Significant associations - Data from T019 - snRNA-seq"
+author: |
+ | Ricardo A. Vialle, Rush Alzheimer's Disease Center
+ | Juliana Beker Godoy, MSc - Graduate program in Bioinformatics, UFPR, Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+# Linear/Logistic Regression
+
+**Test:** [T043](https:/docs.google.com/spreadsheets/d/11Ts8o1gQrzWQ4KoI7_UuudokQ-LxWyYY8iEbXD6sdyU/edit#gid=0&range=A45)
+
+**Date:** 4/9/2024
+
+**Link Github:** https:/github.com/RushAlz/Cytokines/tree/main/sn_RNAseq_DLPFC/T043
+
+**Objective:** Filter to show only significant results from the linear and/or logistic regressions from single-nuclei data (T019)
+
+```{r clean, warning=FALSE, echo=FALSE, results='hide'}
+#This command clean all variables. BE CAREFULL!!! 
+rm(list = setdiff(ls(), lsf.str()))
+```
+
+```{r HelperFunctions, echo = FALSE}
+# Function to create useful tables
+createDT <- function(DF, caption="", scrollY=500){
+  data <- DT::datatable(DF, caption=caption,
+   extensions =  'Buttons',
+   options = list( dom = 'Bfrtip', 
+                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'), 
+                    scrollY = scrollY, scrollX=T, scrollCollapse = T, paging = F,  
+                    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+    )
+   ) 
+   return(data)
+}
+```
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rstatix)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(readr)
+library(tibble)
+library(ggeasy)
+library(ggpubr)
+library(ggsignif)
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+options(encoding = "UTF-8")
+```
+
+```{r set_dir, warning=FALSE, message=FALSE, include=FALSE} 
+# work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC"
+work_dir <- "/pastel/projects/cytokines_Juliana/JNI_revision_I/"
+```
+
+```{r source_reg_function, warning=FALSE, message=FALSE, include=FALSE} 
+source("/pastel/projects/cytokines_Juliana/JNI_revision_I/run_regressions_v3_adjcov.R") # Our script for regressions: linear and logistic 
+```
+
+## Read data and prepare inputs
+
+```{r exprData_upload, warning=FALSE, message=FALSE, include=FALSE} 
+# load("/pastel/resources/data2share/PMI.RData")
+
+syn_idmap = read_tsv("/pastel/resources/synapse/SynapseID_mapping.tsv", show_col_types = F)
+batch_metadata = readxl::read_xlsx("/pastel/resources/20220203_snRNAseq_AMPAD/41586_2024_7871_MOESM5_ESM.xlsx", 
+                           sheet = "Participant inclusion QCs", col_names = TRUE)
+batch_metadata = batch_metadata %>% left_join(syn_idmap, by = c("individualID" = "synapseid")) # Join to get projid
+batch_metadata = batch_metadata %>% select(projid, batch, min_LOD_score)
+
+# RIN = read_csv("/pastel/resources/20220203_snRNAseq_AMPAD/RIN_n1089_08222023.csv")
+# RIN$projid = sprintf("%08d", RIN$projid) # Ensure projid is in the correct format
+# sum(RIN$projid %in% batch_metadata$projid) # 410
+
+# Caminho completo para o arquivo RDS
+file_path <- file.path(work_dir, "snRNA_pseudoBulk_7majCellTypes.rds")
+
+# Carregue o arquivo RDS
+celltype_exp <- readRDS(file_path)
+lapply(celltype_exp, dim) # Check dimensions of each cell type
+```
+
+```{r phenoData_upload, warning=FALSE, message=FALSE, include=FALSE} 
+# file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/pheno_SN.Rdata"
+# file_path <- paste0(work_dir, "pheno_SN.Rdata")
+# load(file_path)
+
+# # Prepare new phenotypes
+# pheno1 = as.data.frame(readRDS("/pastel/resources/data2share/basic_Apr2022_customJul2024.rds"))
+# pheno2 = as.data.frame(readRDS("/pastel/resources/data2share/basic_Apr2022_selected_list_Jul2024.rds"))
+# 
+# celltype_exp <- readRDS(file.path(work_dir, "snRNA_pseudoBulk_7majCellTypes.ComBat.rds"))
+# load("/pastel/resources/data2share/bulk_MF/bulk_DLPFC_2022.Rdata")
+# celltype_exp[["bulk DLPFC"]] = exprData_DLPFC
+# 
+# all_donors = lapply(celltype_exp, function(x) colnames(x)) %>% unlist() %>% unique()
+# 
+# selected_variables = c("projid","pmi","cogdx_3grp",colnames(pheno2))
+# 
+# new_phenotypes = pheno1[pheno1$projid %in% all_donors, selected_variables] %>% distinct()
+# saveRDS(new_phenotypes, file.path(work_dir, "phenotypes_updated.rds"))
+
+pheno_SN = as.data.frame(readRDS(file.path(work_dir, "phenotypes_updated.rds")))
+rownames(pheno_SN) = pheno_SN$projid
+pheno_SN = pheno_SN %>% 
+  # left_join(pmi_df) %>% 
+  # left_join(RIN) %>%
+  left_join(batch_metadata)
+
+# Replace NA values in 'pmi' with the mean of non-NA values
+pheno_SN$pmi[is.na(pheno_SN$pmi)] <- mean(pheno_SN$pmi, na.rm = TRUE)
+
+dim(pheno_SN)
+```
+
+```{r cytokines_list_upload, warning=FALSE, message=FALSE, include=FALSE} 
+# upload list of cytokines
+# file_path <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T015/list_cytokines_T015.txt"
+file_path <- paste0(work_dir, "list_cytokines_T015.txt")
+cytokines <- read.delim(file_path, header = TRUE, check.names = FALSE, stringsAsFactors = FALSE)
+cytokines <- subset(cytokines, select = -family) # I removed the 'family' column here because it had NA values
+ensembls = cytokines$ensembl
+
+# genes = list() 
+# for(cell_i in names(celltype_exp)) {
+#   exprData = celltype_exp[[cell_i]]
+#   exprData_filt = exprData[rownames(exprData) %in% cytokines$ensembl, ]
+#   genes[[cell_i]] = rownames(exprData_filt)
+# }
+# lapply(genes, length) # Check how many genes are in each cell type
+# n_tests = 7 * sum(unlist(lapply(genes, length))) # Total number of genes across all cell types
+# # 160 genes in total * 7 pheno types = 1120 tests
+```
+
+```{r eval=F}
+library(limma)
+library(edgeR)
+
+norm_method = "none"
+
+# Define the covariates for the model
+covs <- c("batch","pmi")
+
+for(cell_i in names(celltype_exp)) {
+  exprData = celltype_exp[[cell_i]]
+  exprData.meta = pheno_SN[match(colnames(exprData), pheno_SN$projid), ]
+  
+  # Construct the design matrix from covariates
+  design_formula <- paste0("~", paste0(covs, collapse = "+")) %>% as.formula()
+  design <- model.matrix(design_formula, data = exprData.meta)
+  design <- design[, colSums(design) > 0] # Remove columns with zero sum
+
+  # Normalize counts and fit linear model using voom and lmFit
+  fit <- lmFit(exprData, design) 
+  
+  # Adjust data based on fitted model, excluding the intercept
+  indx <- grepl("(Intercept)", colnames(fit$design))
+  adjusted_data <- exprData - (fit$design[, !indx] %*% t(fit$coefficients[, !indx]))
+  celltype_exp[[cell_i]] = adjusted_data
+}
+```
+
+```{r eval=F}
+library(sva)
+for(cell_i in names(celltype_exp)) {
+  exprData = celltype_exp[[cell_i]]
+  exprData.meta = pheno_SN[match(colnames(exprData), pheno_SN$projid), ]
+  
+  adjusted_data <- ComBat(exprData, exprData.meta$batch)
+  celltype_exp[[cell_i]] = adjusted_data
+}
+saveRDS(celltype_exp, file.path(work_dir, "snRNA_pseudoBulk_7majCellTypes.ComBat.rds"))
+```
+
+## Prepare parameters
+
+```{r}
+celltype_exp <- readRDS(file.path(work_dir, "snRNA_pseudoBulk_7majCellTypes.ComBat.rds"))
+load("/pastel/resources/data2share/bulk_MF/bulk_DLPFC_2022.Rdata")
+
+celltype_exp[["bulk DLPFC"]] = exprData_DLPFC
+
+covariates = c("age_death","msex", "educ", "pmi")
+
+pheno_list = c(
+  "cogng_demog_slope"="gaussian",
+  "cogng_path_slope"="gaussian",
+  "tangles_sqrt"="gaussian",
+  "amyloid_sqrt"="gaussian",
+  "gpath"="gaussian",
+  "ad_dementia_status"="binomial",
+  "cog_impairment_status"="binomial"
+)
+```
+
+## Run association tests
+
+```{r eval=T}
+assoc_results = list()
+for(cell_i in names(celltype_exp)) {
+  exprData = as.data.frame(celltype_exp[[cell_i]])
+  
+  # Filter the gene expression
+  exprData_ensembl = gsub("(.*)\\.(.*)","\\1", rownames(exprData)) 
+  exprData_filt = exprData[exprData_ensembl %in% cytokines$ensembl, ]
+  exprData_filt$ensembl = gsub("(.*)\\.(.*)","\\1",rownames(exprData_filt))
+  exprData_cytokines = merge(exprData_filt, cytokines, by = "ensembl")
+  rownames(exprData_cytokines) = exprData_cytokines$symbol
+  exprData_cytokines$ensembl = NULL
+  exprData_cytokines$symbol = NULL
+  
+  data4linear_reg <- as.data.frame(t(exprData_cytokines))
+  phenotype_dt <- pheno_SN[match(rownames(data4linear_reg), pheno_SN$projid), ]
+
+  res_test = run_module_trait_association(data4linear_reg, 
+                                          phenotype_dt, 
+                                          pheno_list,
+                                          covariates = covariates)
+  
+  assoc_results[[cell_i]] = res_test
+}
+save(assoc_results, file = file.path(work_dir, "cytokines_snRNA_association_results.RData"))
+```
+
+```{r}
+load(file.path(work_dir, "cytokines_snRNA_association_results.RData"))
+```
+
+## bulk DLPFC
+
+```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE, fig.width=8, fig.height=10}
+source("/pastel/projects/cytokines_Juliana/JNI_revision_I/run_regressions_v3_adjcov.R") # Our script for regressions: linear and logistic 
+result_plot <- create_combined_visualization(assoc_results$`bulk DLPFC`, "DLPFC bulk RNAseq")
+
+png(paste0(work_dir,"/reg_signif_bulk_T043_review1.png"), width = 8, height = 10, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_bulk_T043_review1.pdf"), width = 8, height = 10)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$`bulk DLPFC`$all_stats_df)
+```
+
+## bulk DLPFC (male only)
+
+```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE, fig.width=8, fig.height=5}
+female_ids = pheno_SN %>% filter(msex == 0) %>% filter(projid %in% colnames(exprData_DLPFC)) %>% pull(projid)
+celltype_exp[["bulk DLPFC (female)"]] = exprData_DLPFC[,female_ids]
+
+male_ids = pheno_SN %>% filter(msex == 1) %>% filter(projid %in% colnames(exprData_DLPFC)) %>% pull(projid)
+exprData = exprData_DLPFC[,male_ids]
+
+covariates = c("age_death","educ", "pmi")
+
+# Filter the gene expression
+exprData_ensembl = gsub("(.*)\\.(.*)","\\1", rownames(exprData)) 
+exprData_filt = exprData[exprData_ensembl %in% cytokines$ensembl, ]
+exprData_filt$ensembl = gsub("(.*)\\.(.*)","\\1",rownames(exprData_filt))
+exprData_cytokines = merge(exprData_filt, cytokines, by = "ensembl")
+rownames(exprData_cytokines) = exprData_cytokines$symbol
+exprData_cytokines$ensembl = NULL
+exprData_cytokines$symbol = NULL
+
+data4linear_reg <- as.data.frame(t(exprData_cytokines))
+phenotype_dt <- pheno_SN[match(rownames(data4linear_reg), pheno_SN$projid), ]
+
+res_test = run_module_trait_association(data4linear_reg, 
+                                        phenotype_dt, 
+                                        pheno_list,
+                                        covariates = covariates)
+  
+  
+result_plot <- create_combined_visualization(res_test, "DLPFC bulk RNAseq (males only)")
+
+png(paste0(work_dir,"/reg_signif_bulk_males_review1.png"), width = 8, height = 5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_bulk_males_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(res_test$all_stats_df)
+```
+
+## bulk DLPFC (female only)
+
+```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE, fig.width=8, fig.height=10}
+female_ids = pheno_SN %>% filter(msex == 0) %>% filter(projid %in% colnames(exprData_DLPFC)) %>% pull(projid)
+exprData = exprData_DLPFC[,female_ids]
+
+covariates = c("age_death","educ", "pmi")
+
+# Filter the gene expression
+exprData_ensembl = gsub("(.*)\\.(.*)","\\1", rownames(exprData)) 
+exprData_filt = exprData[exprData_ensembl %in% cytokines$ensembl, ]
+exprData_filt$ensembl = gsub("(.*)\\.(.*)","\\1",rownames(exprData_filt))
+exprData_cytokines = merge(exprData_filt, cytokines, by = "ensembl")
+rownames(exprData_cytokines) = exprData_cytokines$symbol
+exprData_cytokines$ensembl = NULL
+exprData_cytokines$symbol = NULL
+
+data4linear_reg <- as.data.frame(t(exprData_cytokines))
+phenotype_dt <- pheno_SN[match(rownames(data4linear_reg), pheno_SN$projid), ]
+
+res_test = run_module_trait_association(data4linear_reg, 
+                                        phenotype_dt, 
+                                        pheno_list,
+                                        covariates = covariates)
+  
+  
+result_plot <- create_combined_visualization(res_test, "DLPFC bulk RNAseq (females only)")
+
+png(paste0(work_dir,"/reg_signif_bulk_females_review1.png"), width = 8, height = 10, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_bulk_females_review1.pdf"), width = 8, height = 10)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(res_test$all_stats_df)
+```
+
+## Excitatory Neurons
+
+```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE, fig.width=8, fig.height=5}
+result_plot <- create_combined_visualization(assoc_results$ext, "Excitatory Neurons")
+
+png(paste0(work_dir,"/reg_signif_ext_T043_review1.png"), width = 8, height = 5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_ext_T043_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$ext$all_stats_df)
+```
+
+## Inhibitory Neurons
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$inh, "Inhibitory Neurons")
+
+png(paste0(work_dir,"/reg_signif_inh_T043_review1.png"), width = 8, height = 5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_inh_T043_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$inh$all_stats_df)
+```
+
+## Microglia
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$mic, "Microglia")
+
+png(paste0(work_dir,"/reg_signif_mic_T043_review1.png"), width = 8, height = 5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_mic_T043_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$mic$all_stats_df)
+```
+
+## Oligodendrocytes
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$oli, "Oligodendrocytes")
+
+png(paste0(work_dir,"/reg_signif_oli_T043_review1.png"), width = 8, height = 5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_oli_T043_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$oli$all_stats_df)
+```
+
+## Astrocytes
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$ast, "Astrocytes")
+
+png(paste0(work_dir,"/reg_signif_ast_T043_review1.png"), width = 8, height = 5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_ast_T043_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$ast$all_stats_df)
+```
+
+## Oligodendrocyte progenitor cells
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$opc, "OPCs")
+
+png(paste0(work_dir,"/reg_signif_opc_T043_review1.png"), width = 8, height = 5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_opc_T043_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$opc$all_stats_df)
+```
+
+## Endothelial cells
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8.5, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$end, "Endothelial cells")
+
+png(paste0(work_dir,"/reg_signif_end_T043_review1.png"), width = 8, height = 5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_end_T043_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$end$all_stats_df)
+```
+
+## IL-15
+
+```{r, message=FALSE, warning=FALSE} 
+celltype_exp <- readRDS(file.path(work_dir, "snRNA_pseudoBulk_7majCellTypes.ComBat.rds"))
+load("/pastel/resources/data2share/bulk_MF/bulk_DLPFC_2022.Rdata")
+
+celltype_exp[["bulk DLPFC"]] = exprData_DLPFC
+
+dt_res1 = as.data.frame(celltype_exp[["mic"]], check.names = F) 
+dt_res1_selected = dt_res1[rownames(dt_res1) %in% cytokines$ensembl, ]
+# long format for the plot
+dt_res1_selected_l = dt_res1_selected %>% 
+  rownames_to_column("ensembl") %>%
+  pivot_longer(-ensembl, values_to = "expression", names_to = "projid") %>%
+  mutate(celltype = "mic")
+
+dt_res2 = as.data.frame(celltype_exp[["bulk DLPFC"]], check.names = F) 
+dt_res2_selected = dt_res2[gsub("(.*?)\\.(.*)","\\1",rownames(dt_res2)) %in% cytokines$ensembl, ]
+# long format for the plot
+dt_res2_selected_l = dt_res2_selected %>% 
+  rownames_to_column("ensembl") %>%
+  mutate(ensembl = gsub("(.*?)\\.(.*)","\\1",ensembl)) %>%
+  pivot_longer(-ensembl, values_to = "expression", names_to = "projid") %>%
+  mutate(celltype = "bulk DLPFC")
+
+# join to get the gene_name
+dt_res_selected_l = bind_rows(dt_res1_selected_l,dt_res2_selected_l) %>%
+  left_join(cytokines, by = "ensembl")
+```
+
+### IL15 expression by diagnosis
+
+```{r, message=FALSE, warning=FALSE, fig.width=4.5, fig.height=3.5} 
+# join to get the phenotype 
+dt_res_selected_l_meta = dt_res_selected_l %>% 
+  left_join(pheno_SN, by = "projid") %>%
+  filter(symbol == "IL15")
+
+# By diagnosis 
+dt_res_selected_l_meta$cogdx_3grp[dt_res_selected_l_meta$cogdx_3grp == 0] <- "NCI"
+dt_res_selected_l_meta$cogdx_3grp[dt_res_selected_l_meta$cogdx_3grp == 1] <- "MCI"
+dt_res_selected_l_meta$cogdx_3grp[dt_res_selected_l_meta$cogdx_3grp == 2] <- "AD"
+
+dt_res_selected_l_meta$cogdx_3grp = factor(dt_res_selected_l_meta$cogdx_3grp, levels = c("NCI", "MCI", "AD"))
+names(dt_res_selected_l_meta)[names(dt_res_selected_l_meta) == 'cogdx_3grp'] <- 'Diagnosis'
+
+p <- ggplot(na.omit(dt_res_selected_l_meta[, c("Diagnosis", "expression", "symbol", "celltype")]), aes(x = Diagnosis, y = expression, color = Diagnosis)) + 
+  geom_boxplot(notch=F, fill="white", color="black", outlier.shape=NA, lwd=0.4, alpha=1, width=.7, fatten = 3) +
+  ggbeeswarm::geom_quasirandom(alpha=.8, width=.2, show.legend=F, size=2) + 
+  geom_pwc(method = "t_test", label = "p.adj.signif", p.adjust.method = "bonferroni",
+           label.y.npc = "top", label.size = 5, hide.ns = TRUE) +
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+                   geom = "crossbar", width = .7, color = "black") +
+  facet_wrap(~celltype, scales = "free_y", nrow = 1, strip.position = "left", 
+                labeller = as_labeller(c(`bulk DLPFC` = "IL15 expression in bulk DLPFC", mic = "IL15 expression in microglia") ) ) +
+  # facet_wrap(~ celltype+symbol, scales = "free_y") + 
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  xlab("Final consensus diagnosis") + 
+  ylab(NULL) +
+  labs(title = "IL15 expression by diagnosis") +
+  theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 11),
+        strip.placement = "outside",
+        legend.position = "none")
+
+# Print the plot
+print(p)
+  
+# Save to PDF
+cairo_pdf(paste0(work_dir,"/boxplot_IL15_by_diag_review1.pdf"), width = 4.5, height = 3.5)
+print(p)
+dev.off()
+
+# Save to PNG
+png(paste0(work_dir,"/boxplot_IL15_by_diag_review1.png"), width = 4.5, height = 3.5, res = 600, units = "in")
+print(p)
+dev.off()
+```
+
+### IL15 expression by gpath (mic)
+
+```{r, message=FALSE, warning=FALSE, fig.width=5, fig.height=3.5} 
+# By gpath
+p = ggplot(na.omit(dt_res_selected_l_meta[dt_res_selected_l_meta$celltype == "mic",
+                                      c("gpath","Diagnosis", "expression", "symbol", "celltype")]), 
+       aes(x = expression, y = gpath, color = Diagnosis)) + 
+  geom_point(size = 1.5, alpha = 0.6) +
+  stat_smooth(method = "lm", se = F) + # Add regression line
+  stat_cor(method = "spearman", label.x.npc = "left", label.y.npc = "top", size = 4, show.legend = F) +
+  easy_labs(y = "Global AD burden", x = "IL15 expression", title = "IL15 expression on microglia for global AD burden") +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  theme_classic()
+
+# Print the plot
+print(p)
+  
+# Save to PDF
+cairo_pdf(paste0(work_dir,"/scatterplot_IL15_by_gpath_mic_review1.pdf"), width = 5, height = 3.5)
+print(p)
+dev.off()
+
+# Save to PNG
+png(paste0(work_dir,"/scatterplot_IL15_by_gpath_mic_review1.png"), width = 5, height = 3.5, res = 600, units = "in")
+print(p)
+dev.off()
+```
+
+### IL15 expression by cog. decline (bulk)
+
+```{r, message=FALSE, warning=FALSE, fig.width=5, fig.height=3.5} 
+# By cogng_demog_slope
+p = ggplot(na.omit(dt_res_selected_l_meta[dt_res_selected_l_meta$celltype == "bulk DLPFC",
+                                      c("cogng_demog_slope","Diagnosis", "expression", "symbol", "celltype")]), 
+       aes(x = expression, y = cogng_demog_slope, color = Diagnosis)) + 
+  geom_point(size = 1.5, alpha = 0.5) +
+  stat_smooth(method = "lm", se = F) + # Add regression line
+  stat_cor(method = "spearman", label.x.npc = "left", label.y.npc = 0.2, size = 4, show.legend = F) +
+  easy_labs(y = "Cognitive decline (slope)", x = "IL15 expression", title = "IL15 expression on bulk DLPFC for cognitive decline") +
+  scale_color_manual(values = c("AD" = "#BB5566", "MCI" = "#DDAA33", "NCI" = "#004488")) + 
+  theme_classic()
+
+# Print the plot
+print(p)
+  
+# Save to PDF
+cairo_pdf(paste0(work_dir,"/scatterplot_IL15_by_cogdec_bulk_review1.pdf"), width = 5, height = 3.5)
+print(p)
+dev.off()
+
+# Save to PNG
+png(paste0(work_dir,"/scatterplot_IL15_by_cogdec_bulk_review1.png"), width = 5, height = 3.5, res = 600, units = "in")
+print(p)
+dev.off()
+```
+
+# Session info
+```{r}
+sessionInfo()
+```
