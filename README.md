@@ -18,12 +18,7 @@ Results:
 
 1. Association analysis:
 	
-	- Linear and/or logistic regressions using bulk RNAseq data are [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/signif_heatmap_correl_bulkRNA.html)
-	- Linear and/or logistic regressions using single-nuclei RNAseq data are [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/signif_heatmap_correl_snRNA.html)
-	- Scatter plot showing correlation among IL15 expression in the bulk RNAseq dataset and AD traits can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/scatter_plots_IL15_bulk.html)
-	- Scatter plot showing correlation among IL15 microglial expression and AD pathological traits can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/scatter_plot_IL15_mic.html)
-	- Boxplot showing IL15 expression in bulk RNAseq data by diagnosis can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/boxplot_IL15_bulk.html)
-	- Boxplot showing IL15 expression in microglia by diagnosis can be found [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/boxplot_IL15_mic.html)
+	- Association analysis using ROSMAP data (Figure 2 and 4c-d) are [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/signif_heatmap_correl.html)
 	- Regression analysis with cytokine genes grouped by family: [bulk data is here](https://rushalz.github.io/Cytokines_public_release/association_analysis/family_bulk_LR_by_pheno.html) and [single-nuclei data are here](https://rushalz.github.io/Cytokines_public_release/association_analysis/family_sn_LR_by_pheno.html)
 	- Replication analysis using MSBB bulk RNA-Seq data is [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/lr_expr_bulk_MSBB.html)
 	- Replication analysis using Mayo Clinic bulk RNA-Seq data is [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/lr_expr_bulk_Mayo.html)
