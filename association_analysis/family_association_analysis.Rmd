@@ -1,0 +1,316 @@
+---
+title: "Association analysis grouped by cytokine family  (Supplementary figure 3)"
+author: |
+ | Ricardo A. Vialle, Rush Alzheimer's Disease Center
+ | Juliana Beker Godoy, MSc - Graduate program in Bioinformatics, UFPR, Curitiba, Brazil
+date: "`r Sys.Date()`"
+output:
+ rmarkdown::html_document:
+   theme: cerulean
+   highlight: haddock
+   code_folding: hide
+   toc: true
+   toc_float: true
+   smooth_scroll: true
+   number_sections: false
+   self_contained: true
+---
+
+```{r packages, warning=FALSE, echo=FALSE, message=FALSE}
+library(dplyr)
+library(rstatix)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(readr)
+library(tibble)
+library(ggeasy)
+library(ggpubr)
+library(ggsignif)
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+library(readxl)
+options(encoding = "UTF-8")
+```
+
+## Read data and prepare inputs ##
+
+```{r upload_data, warning=FALSE, message=FALSE, include=FALSE} 
+
+## upload cytokine list, script for regressions, bulk and snRNA data
+
+# Bulk
+# Filtering gene expression
+exprData_DLPFC$ensembl = gsub("(.*)\\.(.*)","\\1", rownames(exprData_DLPFC))
+exprData_DLPFC = exprData_DLPFC[exprData_DLPFC$ensembl %in% cytokines$ensembl,]
+exprData_DLPFC = merge(exprData_DLPFC, cytokines, by = "ensembl")
+rownames(exprData_DLPFC) = exprData_DLPFC$ensembl
+exprData_DLPFC$ensembl = NULL
+exprData_DLPFC$symbol = NULL
+
+
+# snRNA-Seq
+celltype_exp <- readRDS(file_path)
+lapply(celltype_exp, dim) # Check dimensions of each cell type
+```
+
+
+## Prepare parameters ##
+
+```{r}
+covariates = c("age_death","msex", "educ", "pmi")
+
+pheno_list = c(
+  "cogng_demog_slope"="gaussian",
+  "cogng_path_slope"="gaussian",
+  "tangles_sqrt"="gaussian",
+  "amyloid_sqrt"="gaussian",
+  "gpath"="gaussian",
+  "ad_dementia_status"="binomial",
+  "cog_impairment_status"="binomial"
+)
+```
+
+```{r filter_expr, warning=FALSE,message=FALSE, include=FALSE}
+filter_cytokines <- function(data_expr) {
+  data_expr <- as.data.frame(data_expr)
+  
+  exprData_filt <- data_expr[rownames(data_expr) %in% cytokines$ensembl, ]
+
+  exprData_filt$ensembl <- rownames(exprData_filt)
+  
+
+  exprData_cytokines <- merge(exprData_filt, cytokines, by = "ensembl")
+
+  rownames(exprData_cytokines) <- exprData_cytokines$symbol
+  exprData_cytokines$ensembl <- NULL
+  exprData_cytokines$symbol <- NULL
+  
+  return(exprData_cytokines)
+}
+
+celltype_exp <- lapply(celltype_exp, filter_cytokines)
+
+```
+
+```{r average_expr, warning=FALSE,message=FALSE, include=FALSE}
+celltype_exp[["bulk DLPFC"]] = exprData_DLPFC
+# function to get avarage expression of cytokine families
+
+avg_expr <- function (data_expr){
+  
+  data_expr <- as.data.frame(data_expr)
+  
+  # Reordere df
+  exprData_cytokines_reordered <- data_expr %>%
+  select(family, everything())
+
+  # Average expression
+  exprData_average <- exprData_cytokines_reordered %>%
+  group_by(family) %>% # Group cytokines per family
+  summarise(across(everything(), ~ mean(.x, na.rm = TRUE))) # Summarize information getting average   expression in all df columns grouped by family groups
+  
+  exprData_average <- as.data.frame(exprData_average)
+  row.names(exprData_average) <- exprData_average$family
+  exprData_average$family = NULL
+  exprData_average$average_expr = NULL
+  
+  data4linear_reg <- as.data.frame(t(exprData_average))
+  
+  return(data4linear_reg)
+
+} 
+
+
+avg_celltype_exp <- lapply(celltype_exp, avg_expr)
+
+
+families = list() 
+for(cell_i in names(avg_celltype_exp)) {
+  exprData = avg_celltype_exp[[cell_i]]
+  families[[cell_i]] = colnames(exprData)
+}
+lapply(families, length)
+n_tests = 7 * sum(unlist(lapply(families, length)))
+# 
+```
+
+# Regressions
+
+Input: Average expression by family. 
+
+Numbers and colors : -log10(nominal pvalue)
+
+cutpoints: 
+
+< 0.001 = *** 
+
+0.01 = ** 
+
+0.05 = *
+
+0.1 = . 
+
+1 = " " 
+
+```{r eval=F}
+assoc_results = list()
+for(cell_i in names(avg_celltype_exp)) {
+  data4linear_reg = as.data.frame(avg_celltype_exp[[cell_i]])
+  phenotype_dt <- pheno_SN[match(rownames(data4linear_reg), pheno_SN$projid), ]
+
+  res_test = run_module_trait_association(data4linear_reg, 
+                                          phenotype_dt, 
+                                          pheno_list,
+                                          covariates = covariates)
+  
+  assoc_results[[cell_i]] = res_test
+}
+save(assoc_results, file = file.path(work_dir, "families_reg_association_results.RData"))
+```
+
+```{r}
+load(file.path(work_dir, "families_reg_association_results.RData"))
+```
+
+# Bulk RNA-Seq DLPFC
+
+```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE}
+result_plot <- create_combined_visualization(assoc_results$`bulk DLPFC`, "DLPFC bulk RNAseq")
+
+png(paste0(work_dir,"/reg_signif_bulk_T062_review1.png"), width = 7.07, height = 3.3, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_bulk_T062_review1.pdf"), width = 8, height = 10)
+result_plot$plot
+dev.off()
+```
+
+# SnRNA-seq DLPFC
+
+## Excitatory Neurons
+
+```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE, fig.width=8, fig.height=5}
+result_plot <- create_combined_visualization(assoc_results$ext, "Excitatory Neurons")
+
+png(paste0(work_dir,"/reg_signif_ext_T062_review1.png"), width = 7.15, height = 3.5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_ext_T062_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$ext$all_stats_df)
+```
+
+## Inhibitory Neurons
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$inh, "Inhibitory Neurons")
+
+png(paste0(work_dir,"/reg_signif_inh_T062_review1.png"), width = 7.25, height = 3.35, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_inh_T062_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$inh$all_stats_df)
+```
+
+## Microglia
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$mic, "Microglia")
+
+png(paste0(work_dir,"/reg_signif_mic_T062_review1.png"), width = 7.15, height = 3.3, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_mic_T062_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$mic$all_stats_df)
+```
+
+## Oligodendrocytes
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$oli, "Oligodendrocytes")
+
+png(paste0(work_dir,"/reg_signif_oli_T062_review1.png"), width = 7.25, height = 3.65, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_oli_T062_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$oli$all_stats_df)
+```
+
+## Astrocytes
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$ast, "Astrocytes")
+
+png(paste0(work_dir,"/reg_signif_ast_T062_review1.png"), width = 7.3, height = 3.3, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_ast_T062_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$ast$all_stats_df)
+```
+
+## Oligodendrocyte progenitor cells
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$opc, "OPCs")
+
+png(paste0(work_dir,"/reg_signif_opc_T062_review1.png"), width = 7.2, height = 3.5, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_opc_T062_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$opc$all_stats_df)
+```
+
+## Endothelial cells
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE, fig.width=8, fig.height=5} 
+result_plot <- create_combined_visualization(assoc_results$end, "Endothelial cells")
+
+png(paste0(work_dir,"/reg_signif_end_T062_review1.png"), width = 7.15, height = 3.15, res = 600, units = "in")
+result_plot$plot
+dev.off()
+cairo_pdf(paste0(work_dir,"/reg_signif_end_T062_review1.pdf"), width = 8, height = 5)
+result_plot$plot
+dev.off()
+```
+
+```{r }
+createDT(assoc_results$end$all_stats_df)
+```
+
+# Session info
+```{r}
+sessionInfo()
+```
+
