@@ -51,26 +51,6 @@ createDT <- function(DF, caption="", scrollY=500){
 }
 ```
 
-```{r set_dir, warning=FALSE,message=FALSE, include=FALSE} 
-work_dir <- "C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/list_cytokines/T025"
-```
-
-```{r list_expr_bulk_upload, warning=FALSE, message=FALSE} 
-# This R object was created during test T016
-# Character vector containing gene symbols from expressed genes in bulk data
-file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/bulk_RNAseq/T016/list_expr_bulk_T016.RData")
-# Load object
-load(file_path)
-```
-
-```{r list_expr_sn_upload, warning=FALSE, message=FALSE} 
-# This R object was created during test T018
-# List of gene symbols for expressed genes in each cell type of single nuclei data
-file_path <- file.path("C:/Users/beker/OneDrive/Documentos/Mestrado/GitHub/Cytokines/sn_RNAseq_DLPFC/T018/list_expr_sn_T018.RData")
-# Load object
-load(file_path)
-```
-
 
 # Upset plot
 
@@ -85,7 +65,6 @@ list_expr_merged <- list_expr_merged[c("Bulk", setdiff(names(list_expr_merged), 
 ```
 
 ```{r upset_plot, warning=FALSE, message=FALSE}
-# Upset plot
 upset_plot <- upset(
   fromList(list_expr_merged), 
   order.by = "freq", 
