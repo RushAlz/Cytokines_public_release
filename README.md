@@ -19,7 +19,7 @@ Results:
 1. Association analysis:
 	
 	- Association analysis using ROSMAP data (Figure 2 and 4c-d) are [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/signif_heatmap_correl.html)
-	- Association analysis with cytokine genes grouped by family (Supplementary Figure 3)[here] (https://rushalz.github.io/Cytokines_public_release/family_association_analysis.html)
+	- Association analysis with cytokine genes grouped by family (Supplementary Figure 3) [here](https://rushalz.github.io/Cytokines_public_release/family_association_analysis.html)
 	- Replication analysis using MSBB bulk RNA-Seq data is [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/lr_expr_bulk_MSBB.html)
 	- Replication analysis using Mayo Clinic bulk RNA-Seq data is [here](https://rushalz.github.io/Cytokines_public_release/association_analysis/lr_expr_bulk_Mayo.html)
 	
